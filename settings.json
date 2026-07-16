@@ -1,6 +1,6 @@
 {
   "ID": "servermon",
-  "ExecutablePath": "python \"C:\\Program Files (x86)\\BigFix Enterprise\\Management Extender\\Plugins\\bigfix-proxyagent-servermon\\plugin\\servermon.py\" --config \"C:\\Program Files (x86)\\BigFix Enterprise\\Management Extender\\Plugins\\bigfix-proxyagent-servermon\\servermon.toml\"",
+  "ExecutablePath": "\"C:\\Program Files\\Python311\\python.exe\" \"C:\\Program Files (x86)\\BigFix Enterprise\\Management Extender\\Plugins\\bigfix-proxyagent-servermon\\plugin\\servermon.py\" --config \"C:\\Program Files (x86)\\BigFix Enterprise\\Management Extender\\Plugins\\bigfix-proxyagent-servermon\\servermon.toml\"",
   "ConfigurationOptions": "",
   "TargetHintRelevance": "",
   "CommandFormat": "JSON",
