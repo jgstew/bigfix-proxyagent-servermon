@@ -129,7 +129,7 @@ python plugin/servermon.py --config servermon.toml --commandDir /tmp/pending
 cat /tmp/reports/*.report
 ```
 
-Troubleshooting: add `--log-file <path> --log-level DEBUG` to the `ExecutablePath` in settings.json to capture a rotating log of every run.
+Troubleshooting: every run writes a rotating log (1 MiB × 3 backups) to `Logs\servermon.log` under the plugin folder by default, creating the directory if needed. Use `--log-file <path>` in the `ExecutablePath` to log somewhere else, and `--log-level DEBUG` for more detail. If the log file cannot be written (e.g. permissions), the plugin logs to stderr and keeps running.
 
 ## Develop
 

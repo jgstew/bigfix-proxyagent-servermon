@@ -21,6 +21,7 @@ from .plugin import ServerMonPlugin
 log = logging.getLogger(__name__)
 
 DEFAULT_CONFIG = Path(__file__).resolve().parent.parent / "servermon.toml"
+DEFAULT_LOG_FILE = Path(__file__).resolve().parent.parent / "Logs" / "servermon.log"
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -62,7 +63,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="validate the config file and exit",
     )
-    parser.add_argument("--log-file", metavar="FILE", help="also log to this file (rotating)")
+    parser.add_argument(
+        "--log-file",
+        metavar="FILE",
+        help=f"log to this file, rotating (default: {DEFAULT_LOG_FILE})",
+    )
     parser.add_argument(
         "--log-level",
         default="INFO",
@@ -120,14 +125,23 @@ def _run_check(plugin: ServerMonPlugin, *, as_json: bool) -> int:
 
 def _setup_logging(level: str, log_file: str | None) -> None:
     handlers: list[logging.Handler] = [logging.StreamHandler()]
-    if log_file:
+    path = Path(log_file) if log_file else DEFAULT_LOG_FILE
+    file_error: OSError | None = None
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
         handlers.append(
             logging.handlers.RotatingFileHandler(
-                log_file, maxBytes=1024 * 1024, backupCount=3, encoding="utf-8"
+                path, maxBytes=1024 * 1024, backupCount=3, encoding="utf-8"
             )
         )
+    except OSError as error:
+        # e.g. no write permission under the service account: keep running
+        # with stderr-only logging rather than failing the whole run.
+        file_error = error
     logging.basicConfig(
         level=getattr(logging, level),
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
         handlers=handlers,
     )
+    if file_error is not None:
+        log.warning("cannot write log file %s: %s", path, file_error)

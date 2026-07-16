@@ -78,6 +78,12 @@ def test_command_dir_mode(config_file, tmp_path):
     assert len(list(output.glob("*.report"))) == 2
 
 
+def test_log_file_directory_auto_created(config_file, tmp_path):
+    log_file = tmp_path / "nested" / "Logs" / "servermon.log"
+    assert main(["--config", str(config_file), "--validate", "--log-file", str(log_file)]) == 0
+    assert log_file.exists()
+
+
 def test_command_dir_required_without_check(config_file):
     with pytest.raises(SystemExit):
         main(["--config", str(config_file)])
