@@ -60,4 +60,10 @@ def build_report(entry: UrlEntry, result: CheckResult) -> dict[str, Any]:
     # "exists match found of ..." to distinguish unconfigured from failed.
     if entry.match is not None:
         report["match found"] = bool(result.match_found)
+    # Only present when this check failed. Omitting the keys on success means
+    # BigFix keeps the previously reported values, so the most recent error
+    # (and when it happened) stays visible even after transient errors clear.
+    if not result.success:
+        report["http check last error"] = result.detail
+        report["http check last error time"] = result.checked_at
     return report

@@ -81,6 +81,8 @@ Default is 60 (hourly). Lower it for more frequent checks; restart `BESProxyAgen
 |---|---|---|
 | `http response code` | integer | `200` (`0` = no HTTP response received) |
 | `http check result` | string | `OK: HTTP 200 OK (231 ms); matched 'Example Domain' in body` |
+| `http check last error` | string | detail string of the most recent *failed* check |
+| `http check last error time` | string | when that error occurred (castable `as time`) |
 | `check success` | boolean | `true` |
 | `match found` | boolean | only present when `match` is configured |
 | `url` | string | `https://example.com` |
@@ -89,7 +91,7 @@ Default is 60 (hourly). Lower it for more frequent checks; restart `BESProxyAgen
 | `servermon version` | string | `0.1.0` |
 | `in proxy agent context` | boolean | `true` |
 
-A ready-to-import analysis exposing all of these as properties is provided in [analysis.bes](analysis.bes). Its applicability relevance (`in proxy agent context` AND `exists servermon version`) keeps it relevant only on devices reported by this plugin.
+A ready-to-import analysis exposing all of these as properties is provided in [analysis-servermon.bes](analysis-servermon.bes). Its applicability relevance (`in proxy agent context` AND `exists servermon version`) keeps it relevant only on devices reported by this plugin.
 
 Example analysis properties targeting these devices:
 
@@ -100,6 +102,8 @@ Q: (it as time) of last check time
 ```
 
 The `http check result` string always starts with `OK:`, `FAILED:` (an HTTP response was received but the status or match check failed), or `ERROR:` (no HTTP response — DNS, TCP, TLS, or timeout failure, with the reason).
+
+`http check last error` and `http check last error time` capture the most recent failed check even after it clears: the plugin only includes those keys in a report when the check fails, so a subsequent successful report does not overwrite the previously retrieved values in BigFix — they persist until the next error replaces them.
 
 ## Test without a Proxy Agent
 

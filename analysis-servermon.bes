@@ -14,6 +14,11 @@ only evaluates true where the inspectors from
 <p><code>HTTP Response Code</code> is <code>0</code> when no HTTP response was
 received at all (DNS, TCP, TLS, or timeout failure); see
 <code>HTTP Check Result</code> for the reason.</p>
+<p><code>HTTP Check Last Error</code> / <code>HTTP Check Last Error Time</code>
+record the most recent failed check. The plugin only includes these keys in a
+device report when a check fails, so a later successful check does not
+overwrite them &mdash; transient errors stay visible until the next error
+replaces them.</p>
 ]]></Description>
 		<Relevance>in proxy agent context</Relevance>
 		<Relevance>exists servermon version</Relevance>
@@ -33,5 +38,7 @@ received at all (DNS, TCP, TLS, or timeout failure); see
 		<Property Name="Last Check Time" ID="7"><![CDATA[last check time]]></Property>
 		<Property Name="Last Check Time - As Time" ID="8"><![CDATA[(last check time) as time]]></Property>
 		<Property Name="ServerMon Version" ID="9"><![CDATA[servermon version]]></Property>
+		<Property Name="HTTP Check Last Error" ID="10"><![CDATA[if exists http check last error then http check last error else "no error recorded"]]></Property>
+		<Property Name="HTTP Check Last Error Time" ID="11"><![CDATA[if exists http check last error time then http check last error time else "no error recorded"]]></Property>
 	</Analysis>
 </BES>

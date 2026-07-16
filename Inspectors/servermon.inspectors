@@ -2,6 +2,8 @@ in proxy agent context: boolean
 url: string
 http response code: integer
 http check result: string
+http check last error: string
+http check last error time: string
 check success: boolean
 match found: boolean
 response time ms: integer

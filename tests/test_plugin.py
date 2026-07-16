@@ -64,6 +64,12 @@ def test_full_refresh_writes_all_reports(http_server, dirs):
     assert missing["http check result"].startswith("FAILED:")
     assert "match found" not in missing
 
+    # Last-error keys appear only in failed reports, so BigFix retains the
+    # previous error across later successful reports.
+    assert missing["http check last error"] == missing["http check result"]
+    assert missing["http check last error time"] == missing["last check time"]
+    assert "http check last error" not in ok
+
     # Refresh command files are left for the Proxy Agent to clean up.
     assert command_file.is_file()
 

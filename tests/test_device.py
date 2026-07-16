@@ -78,6 +78,21 @@ class TestBuildReport:
         report = build_report(UrlEntry(url="https://example.com"), make_result(server=""))
         assert report["operating system"] == "servermon"
 
+    def test_no_last_error_keys_on_success(self):
+        report = build_report(UrlEntry(url="https://example.com"), make_result())
+        assert "http check last error" not in report
+        assert "http check last error time" not in report
+
+    def test_last_error_keys_on_failure(self):
+        failed = make_result(
+            status_code=503,
+            success=False,
+            detail="FAILED: HTTP 503 Service Unavailable (40 ms)",
+        )
+        report = build_report(UrlEntry(url="https://example.com"), failed)
+        assert report["http check last error"] == failed.detail
+        assert report["http check last error time"] == failed.checked_at
+
     def test_match_found_only_when_match_configured(self):
         no_match = build_report(UrlEntry(url="https://example.com"), make_result())
         assert "match found" not in no_match
