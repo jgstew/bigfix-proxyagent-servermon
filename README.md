@@ -11,15 +11,17 @@ The plugin protocol is modeled on [bigfix/trask](https://github.com/bigfix/trask
 
 ## How it works
 
-The Proxy Agent drives everything: every `DeviceReportRefreshIntervalMinutes` (default **60**, i.e. hourly) it drops a `refresh` command file into a command directory and invokes this plugin. The plugin then checks every configured URL (in parallel) and writes one `<device id>.report` JSON file per URL into the output directory. The Proxy Agent ingests those reports and reports the devices to the BES root server — which is what sets each device's Last Report Time to the check time.
+The Proxy Agent drives everything: every `DeviceReportRefreshIntervalMinutes` (default **60**, i.e. hourly) it drops `refresh` command files into `PendingCommands\` under the plugin folder and invokes this plugin with `--commandDir`. The plugin checks the configured URL(s) (in parallel), writes one `<device id>.report` JSON file per URL into the output directory (`DeviceReports\`), and deletes each command file to acknowledge it was processed. The Proxy Agent ingests the reports and reports the devices to the BES root server — which is what sets each device's Last Report Time to the check time.
 
 ```
-BESProxyAgent ──(refresh command)──▶ plugin/servermon.py
-                                          │  reads servermon.toml
-                                          │  HTTP GET each URL
-                                          ▼
-              ◀──(<device id>.report)── one report per URL
+BESProxyAgent ──(PendingCommands\*.command)──▶ plugin/servermon.py
+                                                   │  reads servermon.toml
+                                                   │  HTTP GET each URL
+                                                   ▼
+              ◀──(DeviceReports\<device id>.report)── one report per URL
 ```
+
+Once devices are registered, a modern Proxy Agent (observed on 10.x) sends **per-device** refresh commands named `Refresh-<device id>.command` containing `targetDevice`, a `requiredProperties` list (advisory — the plugin always reports every property), and a `deviceReportSequence` number, which the plugin echoes back in the device report.
 
 ## Requirements
 

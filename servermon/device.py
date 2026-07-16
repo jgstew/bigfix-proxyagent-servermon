@@ -32,7 +32,9 @@ def device_id(url: str) -> str:
     return hashlib.sha256(device_name(url).encode("utf-8")).hexdigest()
 
 
-def build_report(entry: UrlEntry, result: CheckResult) -> dict[str, Any]:
+def build_report(
+    entry: UrlEntry, result: CheckResult, sequence: int | None = None
+) -> dict[str, Any]:
     """Build the device report written to ``<device id>.report``.
 
     "device id", "data source", and "computer name" are the keys the Proxy
@@ -66,4 +68,10 @@ def build_report(entry: UrlEntry, result: CheckResult) -> dict[str, Any]:
     if not result.success:
         report["http check last error"] = result.detail
         report["http check last error time"] = result.checked_at
+    # Echo the report sequence number from the refresh command back to the
+    # Proxy Agent. The expected key spelling is not publicly documented, so
+    # both styles are included; the extra key is harmless either way.
+    if sequence is not None:
+        report["device report sequence"] = sequence
+        report["deviceReportSequence"] = sequence
     return report

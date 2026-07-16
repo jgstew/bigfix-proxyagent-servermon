@@ -70,8 +70,8 @@ def test_full_refresh_writes_all_reports(http_server, dirs):
     assert missing["http check last error time"] == missing["last check time"]
     assert "http check last error" not in ok
 
-    # Refresh command files are left for the Proxy Agent to clean up.
-    assert command_file.is_file()
+    # Deleting the command file acknowledges the refresh was processed.
+    assert not command_file.is_file()
 
 
 def test_partial_refresh_targets_one_device(http_server, dirs):
@@ -97,7 +97,7 @@ def test_partial_refresh_targets_one_device(http_server, dirs):
 def test_partial_refresh_unknown_device_writes_nothing(http_server, dirs):
     pending, output = dirs
     plugin = make_plugin(http_server)
-    write_command(
+    command_file = write_command(
         pending,
         {
             "CommandName": "refresh",
@@ -109,6 +109,47 @@ def test_partial_refresh_unknown_device_writes_nothing(http_server, dirs):
     plugin.process_command_dir(pending)
 
     assert list(output.glob("*.report")) == []
+    # Consumed anyway, so it does not linger in PendingCommands forever.
+    assert not command_file.is_file()
+
+
+def test_real_world_per_device_refresh_command(http_server, dirs):
+    """The exact command shape a live 10.x Proxy Agent writes into
+    PendingCommands (observed on a real deployment)."""
+    pending, output = dirs
+    plugin = make_plugin(http_server)
+    target = device_id(f"{http_server}/ok")
+    command_file = write_command(
+        pending,
+        {
+            "outputDirectory": str(output),
+            "targetDevice": target,
+            "commandName": "refresh",
+            "requiredProperties": [
+                "check success",
+                "http check last error",
+                "http check last error time",
+                "http check result",
+                "http response code",
+                "in proxy agent context",
+                "last check time",
+                "match found",
+                "response time ms",
+                "servermon version",
+                "url",
+            ],
+            "deviceReportSequence": 2,
+        },
+        name=f"Refresh-{target}.command",
+    )
+
+    plugin.process_command_dir(pending)
+
+    report = read_report(output, f"{http_server}/ok")
+    assert report["device id"] == target
+    assert report["device report sequence"] == 2
+    assert report["deviceReportSequence"] == 2
+    assert not command_file.is_file()
 
 
 def test_unsupported_command_reports_error(http_server, dirs):

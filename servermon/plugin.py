@@ -50,20 +50,26 @@ class ServerMonPlugin:
         if command.target_device:  # partial refresh of a single device
             entries = [e for e in entries if device_id(e.url) == command.target_device]
             if not entries:
+                # Device was removed from the config: report nothing so it
+                # expires (DeviceReportExpirationIntervalHours), and consume
+                # the command so it does not linger in PendingCommands.
                 log.warning(
                     "refresh for unknown device %r: no matching URL in config",
                     command.target_device,
                 )
+                _remove_command_file(command)
                 return
 
         log.info("checking %d URL(s)", len(entries))
         for entry, result in self.run_checks(entries):
-            report = build_report(entry, result)
+            report = build_report(entry, result, sequence=command.device_report_sequence)
             report_path = command.output_directory / f"{report['device id']}.report"
             _write_json(report_path, report)
             log.info("%s: %s", report["computer name"], result.detail)
-        # The refresh command file is left for the Proxy Agent to clean up
-        # (same behavior as bigfix/trask).
+        # Deleting the command file acknowledges the refresh is done; if
+        # writing a report failed we raise before reaching this, leaving the
+        # command in place for the next invocation to retry.
+        _remove_command_file(command)
 
     def _process_unsupported(self, command: Command) -> None:
         """servermon devices are monitor-only, so any action command fails."""
@@ -80,10 +86,7 @@ class ServerMonPlugin:
             command.name,
             command.target_device,
         )
-        try:
-            os.remove(command.location)
-        except OSError as error:
-            log.warning("could not remove command file %s: %s", command.location, error)
+        _remove_command_file(command)
 
     def run_checks(self, entries: list[UrlEntry]) -> list[tuple[UrlEntry, CheckResult]]:
         """Check every entry (in parallel) and pair each with its result."""
@@ -100,6 +103,15 @@ class ServerMonPlugin:
             timeout=self.config.timeout_for(entry),
             user_agent=self.config.user_agent,
         )
+
+
+def _remove_command_file(command: Command) -> None:
+    try:
+        os.remove(command.location)
+    except FileNotFoundError:
+        pass  # some Proxy Agent versions clean up command files themselves
+    except OSError as error:
+        log.warning("could not remove command file %s: %s", command.location, error)
 
 
 def _write_json(path: Path, payload: Any) -> None:

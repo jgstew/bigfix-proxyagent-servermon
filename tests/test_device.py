@@ -93,6 +93,16 @@ class TestBuildReport:
         assert report["http check last error"] == failed.detail
         assert report["http check last error time"] == failed.checked_at
 
+    def test_sequence_echoed_when_present(self):
+        entry = UrlEntry(url="https://example.com")
+        without = build_report(entry, make_result())
+        assert "device report sequence" not in without
+        assert "deviceReportSequence" not in without
+
+        with_seq = build_report(entry, make_result(), sequence=2)
+        assert with_seq["device report sequence"] == 2
+        assert with_seq["deviceReportSequence"] == 2
+
     def test_match_found_only_when_match_configured(self):
         no_match = build_report(UrlEntry(url="https://example.com"), make_result())
         assert "match found" not in no_match

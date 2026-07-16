@@ -71,3 +71,21 @@ class Command:
     @property
     def command_id(self) -> str:
         return str(self.get("commandid"))
+
+    @property
+    def required_properties(self) -> list[str]:
+        """Properties the Proxy Agent wants refreshed (advisory; we always
+        report everything we know)."""
+        value = self.get("requiredproperties")
+        if isinstance(value, list):
+            return [str(item) for item in value]
+        return []
+
+    @property
+    def device_report_sequence(self) -> int | None:
+        """Report sequence number the Proxy Agent attached to a refresh
+        (seen from Proxy Agent 10.x; echoed back in the device report)."""
+        value = self.get("devicereportsequence")
+        if isinstance(value, int) and not isinstance(value, bool):
+            return value
+        return None
