@@ -45,7 +45,8 @@ def build_parser() -> argparse.ArgumentParser:
         "--config",
         default=str(DEFAULT_CONFIG),
         metavar="FILE",
-        help=f"servermon TOML config file (default: {DEFAULT_CONFIG})",
+        help="servermon TOML config file; if the given file does not exist, "
+        f"falls back to the default (default: {DEFAULT_CONFIG})",
     )
     parser.add_argument(
         "--check",
@@ -88,7 +89,9 @@ def main(argv: list[str] | None = None) -> int:
         log.debug("ignoring unrecognized arguments: %s", unknown)
 
     try:
-        config = load_config(args.config)
+        config_path = _resolve_config_path(args.config)
+        log.info("using config file: %s", config_path)
+        config = load_config(config_path)
     except ConfigError as error:
         if args.validate:
             print(f"INVALID: {error}")
@@ -97,7 +100,7 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     if args.validate:
-        print(f'"{args.config}" is valid: {len(config.urls)} URL(s) configured.')
+        print(f'"{config_path}" is valid: {len(config.urls)} URL(s) configured.')
         return 0
 
     plugin = ServerMonPlugin(config)
@@ -110,6 +113,29 @@ def main(argv: list[str] | None = None) -> int:
 
     plugin.process_command_dir(args.command_dir)
     return 0
+
+
+def _resolve_config_path(requested: str) -> Path:
+    """Resolve which config file to use, as an absolute path.
+
+    Uses the requested file when it exists; otherwise falls back to the
+    default config in the repository root (next to the plugin).
+    """
+    candidate = Path(requested).resolve()
+    if candidate.is_file():
+        return candidate
+    if candidate != DEFAULT_CONFIG and DEFAULT_CONFIG.is_file():
+        log.warning(
+            "config file %s not found; falling back to default %s",
+            candidate,
+            DEFAULT_CONFIG,
+        )
+        return DEFAULT_CONFIG
+    if candidate != DEFAULT_CONFIG:
+        raise ConfigError(
+            f"config file not found: {candidate} (also tried default: {DEFAULT_CONFIG})"
+        )
+    raise ConfigError(f"config file not found: {candidate}")
 
 
 def _run_check(plugin: ServerMonPlugin, *, as_json: bool) -> int:

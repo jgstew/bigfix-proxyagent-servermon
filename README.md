@@ -60,6 +60,7 @@ verify_tls = false              # for self-signed certs on internal servers
 
 Notes:
 
+- The plugin uses `servermon.toml` in the repo root (next to `plugin/`) by default. A path passed via `--config` is used if it exists; if not, the plugin falls back to the default location. The absolute path of the config actually used is logged at startup.
 - Each `[[urls]]` entry becomes one device. Two entries that differ only by scheme or a trailing slash would be the same device, so the config loader rejects them.
 - `match` is a case-sensitive substring search against the response headers and the first 1 MiB of the body.
 - Redirects are followed; the final response is what gets reported.

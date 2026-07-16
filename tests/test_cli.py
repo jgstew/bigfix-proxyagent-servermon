@@ -2,6 +2,7 @@ import json
 
 import pytest
 
+from servermon import cli
 from servermon.cli import main
 
 
@@ -76,6 +77,24 @@ def test_command_dir_mode(config_file, tmp_path):
 
     assert exit_code == 0
     assert len(list(output.glob("*.report"))) == 2
+
+
+def test_missing_config_falls_back_to_default(config_file, tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(cli, "DEFAULT_CONFIG", config_file.resolve())
+    missing = tmp_path / "does-not-exist.toml"
+
+    assert main(["--config", str(missing), "--validate"]) == 0
+    # The default config's absolute path is what got used and reported.
+    assert str(config_file.resolve()) in capsys.readouterr().out
+
+
+def test_config_not_found_anywhere(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(cli, "DEFAULT_CONFIG", (tmp_path / "default.toml").resolve())
+
+    assert main(["--config", str(tmp_path / "missing.toml"), "--validate"]) == 1
+    out = capsys.readouterr().out
+    assert "INVALID" in out
+    assert "also tried default" in out
 
 
 def test_log_file_directory_auto_created(config_file, tmp_path):
