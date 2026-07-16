@@ -1,0 +1,32 @@
+# bigfix-proxyagent-servermon configuration
+#
+# Each [[urls]] entry becomes one proxied device in BigFix, named after the
+# URL with its scheme removed (https://example.com -> "example.com").
+#
+# How often checks run is NOT set here: the Proxy Agent drives the schedule
+# via "DeviceReportRefreshIntervalMinutes" in settings.json (default 60, i.e.
+# hourly). Each refresh checks every URL and reports the results, which also
+# updates each device's Last Report Time in the BigFix console.
+
+[settings]
+# Per-request timeout, seconds (can be overridden per URL).
+timeout_seconds = 30
+# user_agent = "bigfix-proxyagent-servermon"
+
+[[urls]]
+url = "https://example.com"
+# Optional: report failure unless this string appears in the response body
+# or headers (case-sensitive).
+match = "Example Domain"
+
+[[urls]]
+url = "https://forum.bigfix.com"
+
+[[urls]]
+url = "https://localhost:44444/fake.html"
+
+# [[urls]]
+# url = "https://internal.example.local:8443/health"
+# match = "\"status\": \"ok\""
+# timeout_seconds = 10
+# verify_tls = false   # for self-signed certs on internal servers

@@ -1,0 +1,9 @@
+in proxy agent context: boolean
+url: string
+http response code: integer
+http check result: string
+check success: boolean
+match found: boolean
+response time ms: integer
+last check time: string
+servermon version: string

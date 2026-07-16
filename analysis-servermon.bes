@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<BES xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="BES.xsd">
+	<Analysis>
+		<Title>ServerMon: URL Check Results</Title>
+		<Description><![CDATA[
+<p>Reads back the URL check results reported by the
+<a href="https://github.com/jgstew/bigfix-proxyagent-servermon">bigfix-proxyagent-servermon</a>
+Management Extender plugin.</p>
+<p>Only relevant on proxied devices reported by the servermon plugin: the first
+relevance clause is false on ordinary BES clients (and short-circuits, so the
+plugin-specific inspectors are never evaluated there), and the second clause
+only evaluates true where the inspectors from
+<code>Inspectors/servermon.inspectors</code> are defined.</p>
+<p><code>HTTP Response Code</code> is <code>0</code> when no HTTP response was
+received at all (DNS, TCP, TLS, or timeout failure); see
+<code>HTTP Check Result</code> for the reason.</p>
+]]></Description>
+		<Relevance>in proxy agent context</Relevance>
+		<Relevance>exists servermon version</Relevance>
+		<Source>bigfix-proxyagent-servermon</Source>
+		<SourceReleaseDate>2026-07-16</SourceReleaseDate>
+		<MIMEField>
+			<Name>x-fixlet-modification-time</Name>
+			<Value>Thu, 16 Jul 2026 18:30:00 +0000</Value>
+		</MIMEField>
+		<Domain>BESC</Domain>
+		<Property Name="URL" ID="1"><![CDATA[url]]></Property>
+		<Property Name="HTTP Response Code" ID="2"><![CDATA[http response code]]></Property>
+		<Property Name="HTTP Check Result" ID="3"><![CDATA[http check result]]></Property>
+		<Property Name="Check Success" ID="4"><![CDATA[check success]]></Property>
+		<Property Name="Match Found" ID="5"><![CDATA[if exists match found then (match found) as string else "no match configured"]]></Property>
+		<Property Name="Response Time (ms)" ID="6"><![CDATA[response time ms]]></Property>
+		<Property Name="Last Check Time" ID="7"><![CDATA[last check time]]></Property>
+		<Property Name="Last Check Time - As Time" ID="8"><![CDATA[(last check time) as time]]></Property>
+		<Property Name="ServerMon Version" ID="9"><![CDATA[servermon version]]></Property>
+	</Analysis>
+</BES>

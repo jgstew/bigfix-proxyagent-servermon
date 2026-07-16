@@ -1,0 +1,32 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "bigfix-proxyagent-servermon"
+description = "BigFix Management Extender (Proxy Agent) plugin that monitors web server URLs as proxied devices"
+readme = "README.md"
+license = "Apache-2.0"
+requires-python = ">=3.11"
+authors = [{ name = "JGStew" }]
+dependencies = []
+dynamic = ["version"]
+
+[project.urls]
+Homepage = "https://github.com/jgstew/bigfix-proxyagent-servermon"
+
+[project.scripts]
+servermon = "servermon.cli:main"
+
+[dependency-groups]
+dev = ["pytest"]
+
+[tool.hatch.version]
+path = "servermon/__init__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["servermon"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
