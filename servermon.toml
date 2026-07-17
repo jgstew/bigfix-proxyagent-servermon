@@ -15,8 +15,8 @@ timeout_seconds = 30
 
 [[urls]]
 url = "https://example.com"
-# Optional: report failure unless this string appears in the response body
-# or headers (case-sensitive substring).
+# Optional: report failure unless this case-insensitive regex matches the
+# response body or headers.
 match = "Example Domain"
 # Optional: report failure if this case-insensitive regex matches the
 # response body or headers (reachable, but serving a known-bad page).

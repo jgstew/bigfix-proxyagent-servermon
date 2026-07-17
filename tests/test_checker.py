@@ -59,6 +59,18 @@ def test_match_in_body(http_server):
     assert "in body" in result.detail
 
 
+def test_match_is_case_insensitive(http_server):
+    result = check(f"{http_server}/ok", match="HELLO FROM THE SERVERMON")
+    assert result.success is True
+    assert result.match_found is True
+
+
+def test_match_is_regex(http_server):
+    result = check(f"{http_server}/ok", match=r"hello\s+from\s+the\s+\w+ test")
+    assert result.success is True
+    assert result.match_found is True
+
+
 def test_match_in_headers(http_server):
     result = check(f"{http_server}/ok", match="header-needle")
     assert result.success is True

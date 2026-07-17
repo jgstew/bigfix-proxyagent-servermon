@@ -26,7 +26,7 @@ class UrlEntry:
     """One monitored URL from a ``[[urls]]`` table."""
 
     url: str
-    match: str | None = None  # case-sensitive substring that must be present
+    match: str | None = None  # case-insensitive regex that must match
     no_match: str | None = None  # case-insensitive regex that must NOT match
     verify_tls: bool = True
     timeout_seconds: float | None = None  # None -> use the global setting
@@ -113,20 +113,8 @@ def _parse_url_entry(item: Any, where: str) -> UrlEntry:
             f"{where}: 'url' must be a string starting with http:// or https://"
         )
 
-    match = item.get("match")
-    if match is not None and (not isinstance(match, str) or not match):
-        raise ConfigError(f"{where}: 'match' must be a non-empty string")
-
-    no_match = item.get("no_match")
-    if no_match is not None:
-        if not isinstance(no_match, str) or not no_match:
-            raise ConfigError(f"{where}: 'no_match' must be a non-empty string")
-        try:
-            re.compile(no_match)
-        except re.error as error:
-            raise ConfigError(
-                f"{where}: 'no_match' is not a valid regex: {error}"
-            ) from error
+    match = _parse_regex_option(item, "match", where)
+    no_match = _parse_regex_option(item, "no_match", where)
 
     verify_tls = item.get("verify_tls", True)
     if not isinstance(verify_tls, bool):
@@ -143,6 +131,19 @@ def _parse_url_entry(item: Any, where: str) -> UrlEntry:
         verify_tls=verify_tls,
         timeout_seconds=None if timeout is None else float(timeout),
     )
+
+
+def _parse_regex_option(item: dict[str, Any], key: str, where: str) -> str | None:
+    value = item.get(key)
+    if value is None:
+        return None
+    if not isinstance(value, str) or not value:
+        raise ConfigError(f"{where}: {key!r} must be a non-empty string")
+    try:
+        re.compile(value)
+    except re.error as error:
+        raise ConfigError(f"{where}: {key!r} is not a valid regex: {error}") from error
+    return value
 
 
 def _is_positive_number(value: Any) -> bool:

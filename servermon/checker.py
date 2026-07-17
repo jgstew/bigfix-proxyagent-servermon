@@ -214,7 +214,7 @@ def _from_response(
     match_found: bool | None = None
     match_note = ""
     if entry.match is not None:
-        location = _find_substring(entry.match, header_text, body_text)
+        location = _find_pattern(entry.match, header_text, body_text)
         match_found = location is not None
         if match_found:
             match_note = f"; matched {entry.match!r} in {location}"
@@ -268,15 +268,6 @@ def _response_texts(headers: Message | None, body: bytes) -> tuple[str, str]:
     except LookupError:  # server declared a charset Python does not know
         body_text = body.decode("utf-8", errors="replace")
     return header_text, body_text
-
-
-def _find_substring(match: str, header_text: str, body_text: str) -> str | None:
-    """Where the case-sensitive substring occurs ("headers"/"body"), or None."""
-    if match in header_text:
-        return "headers"
-    if match in body_text:
-        return "body"
-    return None
 
 
 def _find_pattern(pattern: str, header_text: str, body_text: str) -> str | None:

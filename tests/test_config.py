@@ -72,6 +72,20 @@ def test_no_match_option(tmp_path):
     assert config.urls[0].no_match == "could not connect to( the)? database"
 
 
+def test_match_invalid_regex_rejected(tmp_path):
+    with pytest.raises(ConfigError, match="'match' is not a valid regex"):
+        load_config(
+            write_config(
+                tmp_path,
+                """
+                [[urls]]
+                url = "https://example.com"
+                match = "unclosed (paren"
+                """,
+            )
+        )
+
+
 def test_no_match_invalid_regex_rejected(tmp_path):
     with pytest.raises(ConfigError, match="not a valid regex"):
         load_config(
