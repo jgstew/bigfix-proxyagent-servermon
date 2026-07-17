@@ -78,9 +78,25 @@ def test_full_refresh_writes_all_reports(http_server, dirs):
     assert not command_file.is_file()
 
 
-def test_partial_refresh_targets_one_device(http_server, dirs):
+def test_partial_refresh_targets_one_device(http_server, dirs, tmp_path):
     pending, output = dirs
-    plugin = make_plugin(http_server)
+    # The other URL is already known (checked before), so the targeted
+    # refresh must not touch it.
+    state_file = tmp_path / "servermon-state.json"
+    state_file.write_text(
+        json.dumps(
+            {device_id(f"{http_server}/does-not-exist"): {"last check": "whenever"}}
+        ),
+        encoding="utf-8",
+    )
+    config = Config(
+        urls=(
+            UrlEntry(url=f"{http_server}/ok", match="hello from"),
+            UrlEntry(url=f"{http_server}/does-not-exist"),
+        ),
+        timeout_seconds=5,
+    )
+    plugin = ServerMonPlugin(config, state_file=state_file)
     target = device_id(f"{http_server}/ok")
     write_command(
         pending,
@@ -96,6 +112,46 @@ def test_partial_refresh_targets_one_device(http_server, dirs):
     reports = list(output.glob("*.report"))
     assert len(reports) == 1
     assert reports[0].name == f"{target}.report"
+
+
+def test_new_config_url_reported_on_any_refresh(http_server, dirs, tmp_path):
+    """A URL newly added to servermon.toml is picked up on the next
+    invocation even if the Proxy Agent only sent a targeted refresh for a.
+
+    different, already-known device.
+    """
+    pending, output = dirs
+    known = f"{http_server}/ok"
+    new = f"{http_server}/error"
+    state_file = tmp_path / "servermon-state.json"
+    state_file.write_text(
+        json.dumps({device_id(known): {"last check": "whenever"}}), encoding="utf-8"
+    )
+    config = Config(
+        urls=(UrlEntry(url=known), UrlEntry(url=new)), timeout_seconds=5
+    )
+    plugin = ServerMonPlugin(config, state_file=state_file)
+    write_command(
+        pending,
+        {
+            "CommandName": "refresh",
+            "OutputDirectory": str(output),
+            "TargetDevice": device_id(known),
+            "deviceReportSequence": 5,
+        },
+        name=f"Refresh-{device_id(known)}.command",
+    )
+
+    plugin.process_command_dir(pending)
+
+    targeted = read_report(output, known)
+    assert targeted["deviceReportSequence"] == 5
+
+    piggybacked = read_report(output, new)
+    assert piggybacked["http response code"] == 500
+    # The sequence belongs to the targeted device, not the new one.
+    assert "deviceReportSequence" not in piggybacked
+    assert "device report sequence" not in piggybacked
 
 
 def test_partial_refresh_unknown_device_writes_nothing(http_server, dirs):
@@ -214,12 +270,27 @@ def test_last_error_persists_across_runs(http_server, dirs, tmp_path):
     assert second["last device report time"] == second["last check time"]
 
 
-def test_partial_refresh_falls_back_to_target_hint(http_server, dirs):
+def test_partial_refresh_falls_back_to_target_hint(http_server, dirs, tmp_path):
     """If the device id does not match, the target hint (the URL, per
     TargetHintRelevance in settings.json) still finds the entry.
     """
     pending, output = dirs
-    plugin = make_plugin(http_server)
+    # Mark the other URL as already known so it is not piggybacked as new.
+    state_file = tmp_path / "servermon-state.json"
+    state_file.write_text(
+        json.dumps(
+            {device_id(f"{http_server}/does-not-exist"): {"last check": "whenever"}}
+        ),
+        encoding="utf-8",
+    )
+    config = Config(
+        urls=(
+            UrlEntry(url=f"{http_server}/ok", match="hello from"),
+            UrlEntry(url=f"{http_server}/does-not-exist"),
+        ),
+        timeout_seconds=5,
+    )
+    plugin = ServerMonPlugin(config, state_file=state_file)
     write_command(
         pending,
         {

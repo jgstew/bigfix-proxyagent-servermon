@@ -65,6 +65,7 @@ verify_tls = false              # for self-signed certs on internal servers
 Notes:
 
 - The plugin uses `servermon.toml` in the repo root (next to `plugin/`) by default. A path passed via `--config` is used if it exists; if not, the plugin falls back to the default location. The absolute path of the config actually used is logged at startup.
+- The config is re-read on **every invocation** (the plugin is not a daemon), and any URL that has never been checked is reported on any refresh - even a refresh targeted at a different device - so newly added URLs appear in BigFix on the very next Proxy Agent invocation, no restart needed.
 - Each `[[urls]]` entry becomes one device. Two entries that differ only by scheme or a trailing slash would be the same device, so the config loader rejects them.
 - `match` and `no_match` are both case-insensitive **regexes** searched against the response headers and the first 1 MiB of the body. `match` must be found for the check to pass; a `no_match` hit fails the check even on HTTP 200 - for catching pages like "Could not connect to the database" served with a success status. Plain text works as a pattern, but regex metacharacters (`. ? * + ( ) [ ] \`) are interpreted - escape them with `\` if you mean them literally. Both are validated at config load.
 - Redirects are followed; the final response is what gets reported.

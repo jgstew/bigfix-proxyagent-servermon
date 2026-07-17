@@ -92,6 +92,7 @@ class ServerMonPlugin:
         else:
             entries = list(self.config.urls)
 
+        new_entries: list[UrlEntry] = []
         if not command.command_id:
             # Honor per-URL check_interval_minutes for Proxy Agent driven
             # refreshes; action-driven ones (with a commandID) always check.
@@ -104,12 +105,33 @@ class ServerMonPlugin:
                     entry, command
                 ):
                     due.append(entry)
+
+            # URLs newly added to servermon.toml have never been checked, and
+            # a Proxy Agent that only sends per-device refreshes would never
+            # ask for them. The plugin interface explicitly allows submitting
+            # unrequested device reports, so pick them up on any refresh.
+            covered = {device_id(e.url) for e in entries}
+            new_entries = [
+                e
+                for e in self.config.urls
+                if device_id(e.url) not in covered
+                and self.state.last_check(device_id(e.url)) is None
+            ]
+            if new_entries:
+                log.info(
+                    "reporting %d newly configured URL(s)", len(new_entries)
+                )
+
             entries = due
-            if not entries:
+            if not entries and not new_entries:
                 _remove_command_file(command)
                 return
 
         rows = self.check_and_report(entries, sequence=command.device_report_sequence)
+        if new_entries:
+            # Checked separately: the command's deviceReportSequence belongs
+            # to the targeted device only, so it is not echoed here.
+            rows += self.check_and_report(new_entries)
 
         if command.command_id:
             # An actionscript-driven refresh (a "check now" action) carries a
