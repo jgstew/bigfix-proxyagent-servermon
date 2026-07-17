@@ -154,4 +154,5 @@ The tests spin up a local HTTP server, so no network access is needed.
 ## Related
 
 - https://github.com/bigfix/trask - the (outdated) reference proxy agent plugin this protocol is based on
+- https://gist.github.com/jgstew/671bc55470e3afdf5bfa1fa547e1c08c
 - https://github.com/spulec/uncurl
