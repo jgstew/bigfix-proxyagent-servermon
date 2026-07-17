@@ -15,13 +15,14 @@ from pathlib import Path
 
 from . import __version__
 from .config import ConfigError, load_config
-from .device import build_report, device_name
+from .device import device_name
 from .plugin import ServerMonPlugin
 
 log = logging.getLogger(__name__)
 
 DEFAULT_CONFIG = Path(__file__).resolve().parent.parent / "servermon.toml"
 DEFAULT_LOG_FILE = Path(__file__).resolve().parent.parent / "Logs" / "servermon.log"
+DEFAULT_STATE_FILE = Path(__file__).resolve().parent.parent / "servermon-state.json"
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -69,6 +70,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="validate the config file and exit",
     )
     parser.add_argument(
+        "--state-file",
+        default=str(DEFAULT_STATE_FILE),
+        metavar="FILE",
+        help=(
+            "JSON file remembering each device's most recent error across "
+            f"runs (default: {DEFAULT_STATE_FILE})"
+        ),
+    )
+    parser.add_argument(
         "--log-file",
         metavar="FILE",
         help=f"log to this file, rotating (default: {DEFAULT_LOG_FILE})",
@@ -107,7 +117,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f'"{config_path}" is valid: {len(config.urls)} URL(s) configured.')
         return 0
 
-    plugin = ServerMonPlugin(config)
+    plugin = ServerMonPlugin(config, state_file=Path(args.state_file).resolve())
 
     if args.check:
         return _run_check(plugin, as_json=args.json)
@@ -143,14 +153,13 @@ def _resolve_config_path(requested: str) -> Path:
 
 
 def _run_check(plugin: ServerMonPlugin, *, as_json: bool) -> int:
-    results = plugin.run_checks(list(plugin.config.urls))
+    rows = plugin.check_and_report(list(plugin.config.urls))
     if as_json:
-        reports = [build_report(entry, result) for entry, result in results]
-        print(json.dumps(reports, indent=2, ensure_ascii=False))
+        print(json.dumps([report for _, _, report in rows], indent=2, ensure_ascii=False))
     else:
-        for entry, result in results:
+        for entry, result, _ in rows:
             print(f"{device_name(entry.url)}: {result.detail}")
-    return 0 if all(result.success for _, result in results) else 1
+    return 0 if all(result.success for _, result, _ in rows) else 1
 
 
 def _setup_logging(level: str, log_file: str | None) -> None:

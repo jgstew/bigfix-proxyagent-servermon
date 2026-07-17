@@ -15,10 +15,10 @@ only evaluates true where the inspectors from
 received at all (DNS, TCP, TLS, or timeout failure); see
 <code>HTTP Check Result</code> for the reason.</p>
 <p><code>HTTP Check Last Error</code> / <code>HTTP Check Last Error Time</code>
-record the most recent failed check. The plugin only includes these keys in a
-device report when a check fails, so a later successful check does not
-overwrite them &mdash; transient errors stay visible until the next error
-replaces them.</p>
+record the most recent failed check. The plugin remembers each device's last
+error in a local state file and re-sends it with every report, so transient
+errors stay visible after they clear, until the next error replaces them.
+These properties read "no error recorded" for a device that has never failed.</p>
 ]]></Description>
 		<Relevance>in proxy agent context</Relevance>
 		<Relevance>exists servermon version</Relevance>

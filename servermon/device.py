@@ -11,6 +11,7 @@ from . import __version__
 if TYPE_CHECKING:
     from .checker import CheckResult
     from .config import UrlEntry
+    from .state import LastError
 
 DATA_SOURCE = "servermon"
 
@@ -33,7 +34,10 @@ def device_id(url: str) -> str:
 
 
 def build_report(
-    entry: UrlEntry, result: CheckResult, sequence: int | None = None
+    entry: UrlEntry,
+    result: CheckResult,
+    sequence: int | None = None,
+    last_error: LastError | None = None,
 ) -> dict[str, Any]:
     """Build the device report written to ``<device id>.report``.
 
@@ -62,12 +66,13 @@ def build_report(
     # "exists match found of ..." to distinguish unconfigured from failed.
     if entry.match is not None:
         report["match found"] = bool(result.match_found)
-    # Only present when this check failed. Omitting the keys on success means
-    # BigFix keeps the previously reported values, so the most recent error
-    # (and when it happened) stays visible even after transient errors clear.
-    if not result.success:
-        report["http check last error"] = result.detail
-        report["http check last error time"] = result.checked_at
+    # The most recent error this device has ever had (tracked in the plugin's
+    # state file, see state.py). Device reports fully replace prior data in
+    # BigFix, so this must be re-sent every report to stay visible after a
+    # transient error clears. Absent only if the device has never failed.
+    if last_error is not None:
+        report["http check last error"] = last_error.detail
+        report["http check last error time"] = last_error.time
     # Echo the report sequence number from the refresh command back to the
     # Proxy Agent. The expected key spelling is not publicly documented, so
     # both styles are included; the extra key is harmless either way.

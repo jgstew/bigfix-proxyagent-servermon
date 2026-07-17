@@ -175,6 +175,34 @@ def test_unsupported_command_reports_error(http_server, dirs):
     assert not command_file.is_file()
 
 
+def test_last_error_persists_across_runs(http_server, dirs, tmp_path):
+    """A recovered device keeps reporting its most recent error, even from a
+    fresh plugin process (state comes from the state file).
+    """
+    pending, output = dirs
+    state_file = tmp_path / "servermon-state.json"
+    config = Config(urls=(UrlEntry(url=f"{http_server}/flaky"),), timeout_seconds=5)
+
+    # First run: /flaky returns 500, so the error is recorded and reported.
+    plugin = ServerMonPlugin(config, state_file=state_file)
+    write_command(pending, {"CommandName": "refresh", "OutputDirectory": str(output)})
+    plugin.process_command_dir(pending)
+    first = read_report(output, f"{http_server}/flaky")
+    assert first["http response code"] == 500
+    assert first["http check last error"] == first["http check result"]
+
+    # Second run in a new plugin instance: /flaky has recovered, but the
+    # previous error (and its time) must still be present in the report.
+    plugin = ServerMonPlugin(config, state_file=state_file)
+    write_command(pending, {"CommandName": "refresh", "OutputDirectory": str(output)})
+    plugin.process_command_dir(pending)
+    second = read_report(output, f"{http_server}/flaky")
+    assert second["http response code"] == 200
+    assert second["check success"] is True
+    assert second["http check last error"] == first["http check last error"]
+    assert second["http check last error time"] == first["http check last error time"]
+
+
 def test_invalid_command_file_is_skipped(http_server, dirs):
     pending, output = dirs
     plugin = make_plugin(http_server)

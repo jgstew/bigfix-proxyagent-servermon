@@ -3,6 +3,7 @@ import string
 from servermon.checker import CheckResult
 from servermon.config import UrlEntry
 from servermon.device import build_report, device_id, device_name
+from servermon.state import LastError
 
 
 def make_result(**overrides) -> CheckResult:
@@ -87,15 +88,16 @@ class TestBuildReport:
         assert "http check last error" not in report
         assert "http check last error time" not in report
 
-    def test_last_error_keys_on_failure(self):
-        failed = make_result(
-            status_code=503,
-            success=False,
+    def test_last_error_keys_when_state_provides_one(self):
+        last_error = LastError(
             detail="FAILED: HTTP 503 Service Unavailable (40 ms)",
+            time="Tue, 14 Jul 2026 09:00:00 -0400",
         )
-        report = build_report(UrlEntry(url="https://example.com"), failed)
-        assert report["http check last error"] == failed.detail
-        assert report["http check last error time"] == failed.checked_at
+        report = build_report(
+            UrlEntry(url="https://example.com"), make_result(), last_error=last_error
+        )
+        assert report["http check last error"] == last_error.detail
+        assert report["http check last error time"] == last_error.time
 
     def test_sequence_echoed_when_present(self):
         entry = UrlEntry(url="https://example.com")

@@ -116,7 +116,7 @@ Q: (it as time) of last check time
 
 The `http check result` string always starts with `OK:`, `FAILED:` (an HTTP response was received but the status or match check failed), or `ERROR:` (no HTTP response - DNS, TCP, TLS, or timeout failure, with the reason).
 
-`http check last error` and `http check last error time` capture the most recent failed check even after it clears: the plugin only includes those keys in a report when the check fails, so a subsequent successful report does not overwrite the previously retrieved values in BigFix - they persist until the next error replaces them.
+`http check last error` and `http check last error time` capture the most recent failed check even after it clears. Because a device report fully replaces the device's previous data in BigFix, the plugin remembers each device's last error in a small state file (`servermon-state.json` in the repo root by default, `--state-file` to relocate) and re-sends it with every report until a newer error replaces it. The keys are absent only for a device that has never failed.
 
 ## Test without a Proxy Agent
 

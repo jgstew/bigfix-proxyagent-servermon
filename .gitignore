@@ -51,8 +51,9 @@ coverage.xml
 *.mo
 *.pot
 
-# servermon default log location
+# servermon default log and state locations
 /Logs/
+/servermon-state.json
 
 # Django stuff:
 *.log
