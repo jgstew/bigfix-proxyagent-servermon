@@ -180,6 +180,24 @@ class TestBuildReport:
         assert with_seq["device report sequence"] == 2
         assert with_seq["deviceReportSequence"] == 2
 
+    def test_refresh_interval_uses_configured_value(self):
+        report = build_report(
+            UrlEntry(url="https://example.com", check_interval_minutes=240),
+            make_result(),
+            default_interval=60,
+        )
+        assert report["refresh interval"] == 240
+
+    def test_refresh_interval_falls_back_to_default(self):
+        report = build_report(
+            UrlEntry(url="https://example.com"), make_result(), default_interval=60
+        )
+        assert report["refresh interval"] == 60
+
+    def test_refresh_interval_absent_without_default(self):
+        report = build_report(UrlEntry(url="https://example.com"), make_result())
+        assert "refresh interval" not in report
+
     def test_bad_string_found_only_when_no_match_configured(self):
         plain = build_report(UrlEntry(url="https://example.com"), make_result())
         assert "bad string found" not in plain

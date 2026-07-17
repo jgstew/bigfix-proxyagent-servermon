@@ -171,6 +171,19 @@ def test_set_url_check_interval_unknown_url(tmp_path):
         set_url_check_interval(path, "https://nope.example.com", 60)
 
 
+def test_heartbeat_minutes_reads_settings_json(tmp_path):
+    from servermon.config import DEFAULT_HEARTBEAT_MINUTES, heartbeat_minutes
+
+    settings = tmp_path / "settings.json"
+    settings.write_text(
+        '{"ID": "servermon", "DeviceReportRefreshIntervalMinutes": 15}',
+        encoding="utf-8",
+    )
+    assert heartbeat_minutes(settings) == 15
+    # Missing or unreadable settings.json falls back to the shipped default.
+    assert heartbeat_minutes(tmp_path / "nope.json") == DEFAULT_HEARTBEAT_MINUTES
+
+
 def test_empty_urls_list_is_allowed(tmp_path):
     config = load_config(write_config(tmp_path, "urls = []\n"))
     assert config.urls == ()
@@ -245,6 +258,25 @@ def test_unknown_key_rejected(tmp_path):
                 [[urls]]
                 url = "https://example.com"
                 mtach = "typo"
+                """,
+            )
+        )
+
+
+def test_exact_duplicate_urls_rejected_with_positions(tmp_path):
+    with pytest.raises(ConfigError, match="entries 1 and 3 are exact duplicates"):
+        load_config(
+            write_config(
+                tmp_path,
+                """
+                [[urls]]
+                url = "https://localhost:42444/fake2.html"
+
+                [[urls]]
+                url = "https://example.com"
+
+                [[urls]]
+                url = "https://localhost:42444/fake2.html"
                 """,
             )
         )

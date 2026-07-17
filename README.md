@@ -107,6 +107,7 @@ Which bundles were loaded is logged at startup (`TLS trust: loaded ...`); a bund
 | `bad string found` | boolean | only present when `no_match` is configured; `true` = reachable but serving known-bad content |
 | `url` | string | `https://example.com` |
 | `response time ms` | integer | `231` |
+| `refresh interval` | integer | effective check cadence in minutes: the URL's `check_interval_minutes`, else the heartbeat from settings.json |
 | `last check time` | time | `Wed, 15 Jul 2026 14:00:00 -0400` |
 | `tls version` | string | `TLSv1.3` (absent for plain http / no connection) |
 | `remote ip address` | string | `172.66.147.243` (absent when nothing connected) |

@@ -59,6 +59,8 @@ def test_full_refresh_writes_all_reports(http_server, dirs):
     assert ok["data source"] == "servermon"
     assert ok["computer name"].endswith("/ok")
     assert not ok["computer name"].startswith("http")
+    # No per-URL interval configured -> the settings.json heartbeat (60).
+    assert ok["refresh interval"] == 60
 
     missing = read_report(output, f"{http_server}/does-not-exist")
     assert missing["http response code"] == 404
@@ -356,6 +358,8 @@ def test_check_interval_replays_cached_report(http_server, dirs, tmp_path):
     assert report["last check time"] == "Mon, 13 Jul 2026 07:00:00 -0400"
     # ...but the report itself is fresh so the Proxy Agent treats it as new.
     assert report["last server communication"] != "Mon, 13 Jul 2026 07:00:00 -0400"
+    # The reported cadence reflects the current config, not the cached one.
+    assert report["refresh interval"] == 60
     assert not command_file.is_file()
 
 

@@ -40,6 +40,7 @@ def build_report(
     result: CheckResult,
     sequence: int | None = None,
     device_state: DeviceRecord | None = None,
+    default_interval: int | None = None,
 ) -> dict[str, Any]:
     """Build the device report written to ``<device id>.report``.
 
@@ -88,6 +89,14 @@ def build_report(
     if result.peer_ip is not None:
         report["remote ip address"] = result.peer_ip
         report["network"] = _network_structure(result.peer_ip)
+    # The effective check cadence in minutes: this URL's configured
+    # check_interval_minutes, else the plugin-wide heartbeat
+    # (DeviceReportRefreshIntervalMinutes from settings.json).
+    interval = entry.check_interval_minutes
+    if interval is None:
+        interval = default_interval
+    if interval is not None:
+        report["refresh interval"] = interval
     # Only present when a match string is configured, so relevance can use
     # "exists match found of ..." to distinguish unconfigured from failed.
     if entry.match is not None:

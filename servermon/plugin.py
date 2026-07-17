@@ -14,8 +14,8 @@ from typing import Any
 
 from .checker import CheckResult, check_url
 from .command import Command, CommandError
-from .config import (Config, ConfigError, UrlEntry, remove_url_entry,
-                     set_url_check_interval)
+from .config import (Config, ConfigError, UrlEntry, heartbeat_minutes,
+                     remove_url_entry, set_url_check_interval)
 from .device import build_report, device_id, device_name
 from .state import DeviceState
 from .util import write_json_atomic
@@ -42,6 +42,9 @@ class ServerMonPlugin:
         self.config = config
         self.config_path = config_path  # needed by "set refresh interval"
         self.state = DeviceState(state_file)
+        # Default check cadence, reported via the "refresh interval"
+        # inspector for URLs without their own check_interval_minutes.
+        self.default_interval = heartbeat_minutes()
 
     def process_command_dir(self, command_dir: Path | str) -> None:
         command_dir = Path(command_dir)
@@ -160,6 +163,15 @@ class ServerMonPlugin:
         else:
             try:
                 set_url_check_interval(self.config_path, entries[0].url, minutes)
+                # Also update the in-memory config so later commands in this
+                # same invocation see (and report) the new interval.
+                updated = replace(entries[0], check_interval_minutes=minutes)
+                self.config = replace(
+                    self.config,
+                    urls=tuple(
+                        updated if e is entries[0] else e for e in self.config.urls
+                    ),
+                )
                 outcome = "Completed"
                 log.info(
                     "%s: set check_interval_minutes = %d for %s",
@@ -238,6 +250,11 @@ class ServerMonPlugin:
             return False
         report["last server communication"] = email.utils.format_datetime(
             datetime.now().astimezone()
+        )
+        # Keep the reported cadence current even when the cached report
+        # predates a "set refresh interval" change.
+        report["refresh interval"] = (
+            entry.check_interval_minutes or self.default_interval
         )
         if command.device_report_sequence is not None:
             report["device report sequence"] = command.device_report_sequence
@@ -319,7 +336,11 @@ class ServerMonPlugin:
         for entry, result in self.run_checks(entries):
             device_state = self.state.record(device_id(entry.url), result)
             report = build_report(
-                entry, result, sequence=sequence, device_state=device_state
+                entry,
+                result,
+                sequence=sequence,
+                device_state=device_state,
+                default_interval=self.default_interval,
             )
             # Cache the report so refreshes within this URL's check interval
             # can re-submit it without a new HTTP check.

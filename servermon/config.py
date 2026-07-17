@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -14,6 +15,11 @@ from .util import write_text_atomic
 
 DEFAULT_TIMEOUT_SECONDS = 30.0
 DEFAULT_USER_AGENT = "bigfix-proxyagent-servermon"
+
+# Matches the DeviceReportRefreshIntervalMinutes in the settings.json this
+# plugin ships with; used only if that file cannot be read.
+DEFAULT_HEARTBEAT_MINUTES = 60
+PLUGIN_SETTINGS_JSON = Path(__file__).resolve().parent.parent / "settings.json"
 
 _URL_ENTRY_KEYS = {
     "url",
@@ -55,6 +61,24 @@ class Config:
         if entry.timeout_seconds is not None:
             return entry.timeout_seconds
         return self.timeout_seconds
+
+
+def heartbeat_minutes(settings_path: Path | None = None) -> int:
+    """The Proxy Agent heartbeat (DeviceReportRefreshIntervalMinutes) from
+    the plugin's settings.json - the default check interval for URLs without.
+
+    their own check_interval_minutes.
+    """
+    path = settings_path if settings_path is not None else PLUGIN_SETTINGS_JSON
+    try:
+        with path.open("r", encoding="utf-8") as f:
+            settings = json.load(f)
+        value = settings.get("DeviceReportRefreshIntervalMinutes")
+        if isinstance(value, int) and not isinstance(value, bool) and value >= 1:
+            return value
+    except (OSError, json.JSONDecodeError, UnicodeDecodeError, AttributeError):
+        pass
+    return DEFAULT_HEARTBEAT_MINUTES
 
 
 def load_config(path: Path | str) -> Config:
@@ -99,15 +123,22 @@ def parse_config(raw: dict[str, Any], source: str = "<config>") -> Config:
 
     # Device identity is the scheme-less name, so entries that differ only by
     # scheme or a trailing slash would silently overwrite each other's reports.
-    seen: dict[str, str] = {}
-    for entry in entries:
+    seen: dict[str, tuple[int, str]] = {}
+    for index, entry in enumerate(entries, start=1):
         name = device_name(entry.url)
         if name in seen:
+            other_index, other_url = seen[name]
+            if entry.url == other_url:
+                raise ConfigError(
+                    f"{source}: [[urls]] entries {other_index} and {index} are "
+                    f"exact duplicates of {entry.url!r}; remove one"
+                )
             raise ConfigError(
-                f"{source}: {entry.url!r} and {seen[name]!r} are both device "
-                f"{name!r}; remove one or make the URLs distinct"
+                f"{source}: [[urls]] entry {other_index} ({other_url!r}) and "
+                f"entry {index} ({entry.url!r}) are both device {name!r}; "
+                "remove one or make the URLs distinct"
             )
-        seen[name] = entry.url
+        seen[name] = (index, entry.url)
 
     return Config(
         urls=tuple(entries),
