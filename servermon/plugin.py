@@ -21,7 +21,7 @@ MAX_PARALLEL_CHECKS = 8
 
 
 class ServerMonPlugin:
-    def __init__(self, config: Config):
+    def __init__(self, config: Config) -> None:
         self.config = config
 
     def process_command_dir(self, command_dir: Path | str) -> None:
@@ -62,7 +62,9 @@ class ServerMonPlugin:
 
         log.info("checking %d URL(s)", len(entries))
         for entry, result in self.run_checks(entries):
-            report = build_report(entry, result, sequence=command.device_report_sequence)
+            report = build_report(
+                entry, result, sequence=command.device_report_sequence
+            )
             report_path = command.output_directory / f"{report['device id']}.report"
             _write_json(report_path, report)
             log.info("%s: %s", report["computer name"], result.detail)
@@ -72,7 +74,7 @@ class ServerMonPlugin:
         _remove_command_file(command)
 
     def _process_unsupported(self, command: Command) -> None:
-        """servermon devices are monitor-only, so any action command fails."""
+        """Servermon devices are monitor-only, so any action command fails."""
         result = [
             {
                 "CommandID": command.command_id,

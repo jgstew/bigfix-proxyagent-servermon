@@ -115,7 +115,8 @@ def test_partial_refresh_unknown_device_writes_nothing(http_server, dirs):
 
 def test_real_world_per_device_refresh_command(http_server, dirs):
     """The exact command shape a live 10.x Proxy Agent writes into
-    PendingCommands (observed on a real deployment)."""
+    PendingCommands (observed on a real deployment).
+    """
     pending, output = dirs
     plugin = make_plugin(http_server)
     target = device_id(f"{http_server}/ok")
@@ -179,7 +180,9 @@ def test_invalid_command_file_is_skipped(http_server, dirs):
     plugin = make_plugin(http_server)
     (pending / "junk.json").write_text("{not json", encoding="utf-8")
     write_command(
-        pending, {"CommandName": "refresh", "OutputDirectory": str(output)}, name="0002.json"
+        pending,
+        {"CommandName": "refresh", "OutputDirectory": str(output)},
+        name="0002.json",
     )
 
     plugin.process_command_dir(pending)  # must not raise

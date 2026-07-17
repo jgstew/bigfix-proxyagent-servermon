@@ -3,19 +3,30 @@
 from __future__ import annotations
 
 import email.utils
+import functools
 import http.client
+import logging
 import socket
 import ssl
+import threading
 import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
 from datetime import datetime
 from email.message import Message
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .config import UrlEntry
+
+log = logging.getLogger(__name__)
+
+# Optional PEM bundle shipped alongside the plugin (repo root); loaded into
+# the trust store when present, e.g. for internal CAs or machines whose OS
+# store is missing public roots.
+PLUGIN_CA_BUNDLE = Path(__file__).resolve().parent.parent / "ca-bundle.pem"
 
 # Read at most this much of the response body when scanning for the match
 # string, so a misconfigured URL (e.g. pointing at a large download) cannot
@@ -51,14 +62,13 @@ def check_url(entry: UrlEntry, *, timeout: float, user_agent: str) -> CheckResul
         entry.url, headers={"User-Agent": user_agent, "Accept": "*/*"}
     )
 
-    context = ssl.create_default_context()
-    if not entry.verify_tls:
-        context.check_hostname = False
-        context.verify_mode = ssl.CERT_NONE
+    context = _ssl_context(entry.verify_tls)
 
     started = time.monotonic()
     try:
-        with urllib.request.urlopen(request, timeout=timeout, context=context) as response:
+        with urllib.request.urlopen(
+            request, timeout=timeout, context=context
+        ) as response:
             body = response.read(MAX_BODY_BYTES)
             elapsed_ms = _elapsed_ms(started)
             return _from_response(
@@ -71,7 +81,9 @@ def check_url(entry: UrlEntry, *, timeout: float, user_agent: str) -> CheckResul
         except OSError:
             body = b""
         elapsed_ms = _elapsed_ms(started)
-        return _from_response(entry, error.code, error.headers, body, elapsed_ms, checked_at)
+        return _from_response(
+            entry, error.code, error.headers, body, elapsed_ms, checked_at
+        )
     except (
         urllib.error.URLError,
         ssl.SSLError,
@@ -94,6 +106,59 @@ def check_url(entry: UrlEntry, *, timeout: float, user_agent: str) -> CheckResul
         checked_at=checked_at,
         server="",
     )
+
+
+_ssl_context_lock = threading.Lock()
+
+
+def _ssl_context(verify: bool) -> ssl.SSLContext:
+    """Shared SSL context for all checks, built once per process.
+
+    The lock keeps parallel first callers from each building (and logging)
+    their own context; lru_cache alone does not serialize the first call.
+    """
+    with _ssl_context_lock:
+        return _build_ssl_context(verify)
+
+
+@functools.lru_cache(maxsize=None)
+def _build_ssl_context(verify: bool) -> ssl.SSLContext:
+    """Build the SSL context used for all checks.
+
+    The trust anchors are the combination of:
+    1. the OS certificate store (on Windows, the ROOT and CA system stores)
+       plus anything in the SSL_CERT_FILE / SSL_CERT_DIR env vars - this is
+       what ssl.create_default_context() loads;
+    2. the certifi bundle, when the certifi package is installed;
+    3. an optional ``ca-bundle.pem`` file next to the plugin (repo root).
+
+    A bundle that fails to load is logged and skipped rather than fatal.
+    """
+    context = ssl.create_default_context()
+    if not verify:
+        context.check_hostname = False
+        context.verify_mode = ssl.CERT_NONE
+        return context
+
+    try:
+        import certifi
+    except ImportError:
+        log.debug("certifi not installed; skipping")
+    else:
+        _load_ca_bundle(context, certifi.where(), "certifi bundle")
+
+    if PLUGIN_CA_BUNDLE.is_file():
+        _load_ca_bundle(context, str(PLUGIN_CA_BUNDLE), "plugin ca-bundle.pem")
+
+    return context
+
+
+def _load_ca_bundle(context: ssl.SSLContext, cafile: str, label: str) -> None:
+    try:
+        context.load_verify_locations(cafile=cafile)
+        log.info("TLS trust: loaded %s (%s)", label, cafile)
+    except (ssl.SSLError, OSError) as error:
+        log.warning("TLS trust: could not load %s (%s): %s", label, cafile, error)
 
 
 def _from_response(
@@ -141,7 +206,9 @@ def _find_match(match: str, headers: Message | None, body: bytes) -> str | None:
         if match in header_text:
             return "headers"
 
-    charset = (headers.get_content_charset() if headers is not None else None) or "utf-8"
+    charset = (
+        headers.get_content_charset() if headers is not None else None
+    ) or "utf-8"
     try:
         text = body.decode(charset, errors="replace")
     except LookupError:  # server declared a charset Python does not know

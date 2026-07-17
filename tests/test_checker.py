@@ -1,6 +1,12 @@
+import logging
+import ssl
 from datetime import datetime
 
-from servermon.checker import TIME_FORMAT, check_url
+import pytest
+
+import servermon.checker
+from servermon.checker import (TIME_FORMAT, _build_ssl_context,
+                               _load_ca_bundle, _ssl_context, check_url)
 from servermon.config import UrlEntry
 
 
@@ -93,3 +99,61 @@ def test_unresolvable_host():
     assert result.status_code == 0
     assert result.success is False
     assert result.detail.startswith("ERROR:")
+
+
+@pytest.fixture
+def fresh_ssl_context_cache():
+    _build_ssl_context.cache_clear()
+    yield
+    _build_ssl_context.cache_clear()
+
+
+def _some_system_ca_pem() -> str:
+    ders = ssl.create_default_context().get_ca_certs(binary_form=True)
+    if not ders:
+        pytest.skip("no system CA certificates available")
+    return ssl.DER_cert_to_PEM_cert(ders[0])
+
+
+def test_ssl_context_verify_disabled(fresh_ssl_context_cache):
+    context = _ssl_context(False)
+    assert context.verify_mode == ssl.CERT_NONE
+    assert context.check_hostname is False
+
+
+def test_ssl_context_verify_enabled(fresh_ssl_context_cache):
+    context = _ssl_context(True)
+    assert context.verify_mode == ssl.CERT_REQUIRED
+    assert context.check_hostname is True
+
+
+def test_load_ca_bundle_adds_certs(tmp_path):
+    bundle = tmp_path / "bundle.pem"
+    bundle.write_text(_some_system_ca_pem(), encoding="utf-8")
+
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    assert len(context.get_ca_certs()) == 0
+    _load_ca_bundle(context, str(bundle), "test bundle")
+    assert len(context.get_ca_certs()) == 1
+
+
+def test_load_ca_bundle_invalid_is_not_fatal(tmp_path, caplog):
+    bundle = tmp_path / "junk.pem"
+    bundle.write_text("this is not a PEM file", encoding="utf-8")
+
+    context = ssl.create_default_context()
+    with caplog.at_level(logging.WARNING, logger="servermon.checker"):
+        _load_ca_bundle(context, str(bundle), "junk bundle")  # must not raise
+    assert any("could not load junk bundle" in r.message for r in caplog.records)
+
+
+def test_plugin_ca_bundle_loaded_when_present(
+    fresh_ssl_context_cache, tmp_path, monkeypatch, caplog
+):
+    bundle = tmp_path / "ca-bundle.pem"
+    bundle.write_text(_some_system_ca_pem(), encoding="utf-8")
+    monkeypatch.setattr(servermon.checker, "PLUGIN_CA_BUNDLE", bundle)
+
+    with caplog.at_level(logging.INFO, logger="servermon.checker"):
+        _ssl_context(True)
+    assert any("plugin ca-bundle.pem" in r.message for r in caplog.records)

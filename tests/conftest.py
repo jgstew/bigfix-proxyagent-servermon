@@ -15,7 +15,7 @@ class _Handler(http.server.BaseHTTPRequestHandler):
 
     def do_GET(self):  # noqa: N802 (http.server API)
         if self.path == "/ok":
-            body = "hello from the servermon test server".encode()
+            body = b"hello from the servermon test server"
             self.send_response(200)
             self.send_header("Content-Type", "text/plain; charset=utf-8")
             self.send_header("Content-Length", str(len(body)))

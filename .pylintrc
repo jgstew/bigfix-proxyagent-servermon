@@ -1,0 +1,5 @@
+[MESSAGES CONTROL]
+disable = C0103, C0209, c-extension-no-member, missing-function-docstring
+
+[format]
+max-line-length = 88

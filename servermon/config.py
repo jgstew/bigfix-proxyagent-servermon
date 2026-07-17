@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+import tomllib
 
 from .device import device_name
 
@@ -60,7 +61,9 @@ def parse_config(raw: dict[str, Any], source: str = "<config>") -> Config:
 
     timeout = settings.get("timeout_seconds", DEFAULT_TIMEOUT_SECONDS)
     if not _is_positive_number(timeout):
-        raise ConfigError(f"{source}: settings.timeout_seconds must be a positive number")
+        raise ConfigError(
+            f"{source}: settings.timeout_seconds must be a positive number"
+        )
 
     user_agent = settings.get("user_agent", DEFAULT_USER_AGENT)
     if not isinstance(user_agent, str) or not user_agent:
@@ -104,7 +107,9 @@ def _parse_url_entry(item: Any, where: str) -> UrlEntry:
 
     url = item.get("url")
     if not isinstance(url, str) or not url.lower().startswith(("http://", "https://")):
-        raise ConfigError(f"{where}: 'url' must be a string starting with http:// or https://")
+        raise ConfigError(
+            f"{where}: 'url' must be a string starting with http:// or https://"
+        )
 
     match = item.get("match")
     if match is not None and (not isinstance(match, str) or not match):

@@ -45,14 +45,18 @@ def build_parser() -> argparse.ArgumentParser:
         "--config",
         default=str(DEFAULT_CONFIG),
         metavar="FILE",
-        help="servermon TOML config file; if the given file does not exist, "
-        f"falls back to the default (default: {DEFAULT_CONFIG})",
+        help=(
+            "servermon TOML config file; if the given file does not exist, "
+            f"falls back to the default (default: {DEFAULT_CONFIG})"
+        ),
     )
     parser.add_argument(
         "--check",
         action="store_true",
-        help="check all configured URLs once, print the results, and exit "
-        "non-zero if any check failed",
+        help=(
+            "check all configured URLs once, print the results, and exit "
+            "non-zero if any check failed"
+        ),
     )
     parser.add_argument(
         "--json",

@@ -20,7 +20,7 @@ class Command:
     compared case-insensitively, mirroring bigfix/trask.
     """
 
-    def __init__(self, location: Path, fields: dict[str, Any]):
+    def __init__(self, location: Path, fields: dict[str, Any]) -> None:
         self.location = location
         self._fields = {key.lower(): value for key, value in fields.items()}
 
@@ -31,7 +31,9 @@ class Command:
             with location.open("r", encoding="utf-8") as f:
                 fields = json.load(f)
         except (OSError, json.JSONDecodeError, UnicodeDecodeError) as error:
-            raise CommandError(f"cannot read command file {location}: {error}") from error
+            raise CommandError(
+                f"cannot read command file {location}: {error}"
+            ) from error
         if not isinstance(fields, dict):
             raise CommandError(f"command file {location} must contain a JSON object")
 
@@ -75,7 +77,8 @@ class Command:
     @property
     def required_properties(self) -> list[str]:
         """Properties the Proxy Agent wants refreshed (advisory; we always
-        report everything we know)."""
+        report everything we know).
+        """
         value = self.get("requiredproperties")
         if isinstance(value, list):
             return [str(item) for item in value]
@@ -84,7 +87,8 @@ class Command:
     @property
     def device_report_sequence(self) -> int | None:
         """Report sequence number the Proxy Agent attached to a refresh
-        (seen from Proxy Agent 10.x; echoed back in the device report)."""
+        (seen from Proxy Agent 10.x; echoed back in the device report).
+        """
         value = self.get("devicereportsequence")
         if isinstance(value, int) and not isinstance(value, bool):
             return value

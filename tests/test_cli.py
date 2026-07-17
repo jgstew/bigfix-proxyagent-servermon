@@ -79,7 +79,9 @@ def test_command_dir_mode(config_file, tmp_path):
     assert len(list(output.glob("*.report"))) == 2
 
 
-def test_missing_config_falls_back_to_default(config_file, tmp_path, monkeypatch, capsys):
+def test_missing_config_falls_back_to_default(
+    config_file, tmp_path, monkeypatch, capsys
+):
     monkeypatch.setattr(cli, "DEFAULT_CONFIG", config_file.resolve())
     missing = tmp_path / "does-not-exist.toml"
 
@@ -99,7 +101,10 @@ def test_config_not_found_anywhere(tmp_path, monkeypatch, capsys):
 
 def test_log_file_directory_auto_created(config_file, tmp_path):
     log_file = tmp_path / "nested" / "Logs" / "servermon.log"
-    assert main(["--config", str(config_file), "--validate", "--log-file", str(log_file)]) == 0
+    assert (
+        main(["--config", str(config_file), "--validate", "--log-file", str(log_file)])
+        == 0
+    )
     assert log_file.exists()
 
 

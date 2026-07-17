@@ -2,26 +2,26 @@
 
 A BigFix Management Extender (Proxy Agent) plugin that monitors web servers / URLs. Each monitored URL shows up in BigFix as its own proxied device:
 
-- The **device name** is the URL with the scheme removed (`https://example.com` → `example.com`).
+- The **device name** is the URL with the scheme removed (`https://example.com` -> `example.com`).
 - The **last report time** is the last time the URL was checked.
 - The **operating system** column shows the web server's `Server` header when available (e.g. `nginx/1.25.3`).
 - Virtual inspectors expose the **HTTP response code**, a **detailed check result string**, and more to analyses.
 
-The plugin protocol is modeled on [bigfix/trask](https://github.com/bigfix/trask), rewritten in modern Python (3.11+, standard library only — no dependencies).
+The plugin protocol is modeled on [bigfix/trask](https://github.com/bigfix/trask), rewritten in modern Python (3.11+, standard library only - no dependencies).
 
 ## How it works
 
-The Proxy Agent drives everything: every `DeviceReportRefreshIntervalMinutes` (default **60**, i.e. hourly) it drops `refresh` command files into `PendingCommands\` under the plugin folder and invokes this plugin with `--commandDir`. The plugin checks the configured URL(s) (in parallel), writes one `<device id>.report` JSON file per URL into the output directory (`DeviceReports\`), and deletes each command file to acknowledge it was processed. The Proxy Agent ingests the reports and reports the devices to the BES root server — which is what sets each device's Last Report Time to the check time.
+The Proxy Agent drives everything: every `DeviceReportRefreshIntervalMinutes` (default **60**, i.e. hourly) it drops `refresh` command files into `PendingCommands\` under the plugin folder and invokes this plugin with `--commandDir`. The plugin checks the configured URL(s) (in parallel), writes one `<device id>.report` JSON file per URL into the output directory (`DeviceReports\`), and deletes each command file to acknowledge it was processed. The Proxy Agent ingests the reports and reports the devices to the BES root server - which is what sets each device's Last Report Time to the check time.
 
 ```
-BESProxyAgent ──(PendingCommands\*.command)──▶ plugin/servermon.py
-                                                   │  reads servermon.toml
-                                                   │  HTTP GET each URL
-                                                   ▼
-              ◀──(DeviceReports\<device id>.report)── one report per URL
+BESProxyAgent --(PendingCommands\*.command)--:arrow_forward: plugin/servermon.py
+                                                   |  reads servermon.toml
+                                                   |  HTTP GET each URL
+                                                   v
+              :arrow_backward:--(DeviceReports\<device id>.report)-- one report per URL
 ```
 
-Once devices are registered, a modern Proxy Agent (observed on 10.x) sends **per-device** refresh commands named `Refresh-<device id>.command` containing `targetDevice`, a `requiredProperties` list (advisory — the plugin always reports every property), and a `deviceReportSequence` number, which the plugin echoes back in the device report.
+Once devices are registered, a modern Proxy Agent (observed on 10.x) sends **per-device** refresh commands named `Refresh-<device id>.command` containing `targetDevice`, a `requiredProperties` list (advisory - the plugin always reports every property), and a `deviceReportSequence` number, which the plugin echoes back in the device report.
 
 ## Requirements
 
@@ -41,7 +41,7 @@ If your Management Extender is installed elsewhere, adjust the two paths in [set
 
 ## Configure
 
-### URLs to monitor — [servermon.toml](servermon.toml)
+### URLs to monitor - [servermon.toml](servermon.toml)
 
 ```toml
 [settings]
@@ -66,7 +66,7 @@ Notes:
 - Redirects are followed; the final response is what gets reported.
 - A URL that returns HTTP 4xx/5xx, fails its `match`, or does not respond at all reports `check success = false` (an unreachable server reports response code `0`).
 
-### Check interval — [settings.json](settings.json)
+### Check interval - [settings.json](settings.json)
 
 The check frequency is controlled by the Proxy Agent, not the plugin:
 
@@ -75,6 +75,16 @@ The check frequency is controlled by the Proxy Agent, not the plugin:
 ```
 
 Default is 60 (hourly). Lower it for more frequent checks; restart `BESProxyAgent` after changing it.
+
+### TLS trust store
+
+For `https://` URLs (with `verify_tls` on, the default), the trusted CAs are the **combination** of:
+
+1. The OS certificate store - on Windows, the system `ROOT` and `CA` stores - plus anything pointed to by the `SSL_CERT_FILE` / `SSL_CERT_DIR` environment variables.
+2. The [certifi](https://pypi.org/project/certifi/) bundle, if the package is installed (`python -m pip install certifi`) - optional, the plugin stays stdlib-only without it.
+3. A PEM bundle named `ca-bundle.pem` in the repo root next to `servermon.toml` - useful for internal/corporate CAs, or public roots missing from an isolated server's OS store. The repo ships one containing [ISRG Root X1](https://letsencrypt.org/certs/isrgrootx1.pem) (the Let's Encrypt root, needed for many public sites); append additional PEM certificates to it as needed, or delete it if unwanted - it is optional and serves as an example.
+
+Which bundles were loaded is logged at startup (`TLS trust: loaded ...`); a bundle that fails to parse is logged and skipped rather than fatal. A `CERTIFICATE_VERIFY_FAILED ... unable to get local issuer certificate` error means none of these sources contain the site's root/intermediate - drop the needed PEM into `ca-bundle.pem` or install certifi.
 
 ## Virtual inspectors
 
@@ -104,9 +114,9 @@ Q: http check result
 Q: (it as time) of last check time
 ```
 
-The `http check result` string always starts with `OK:`, `FAILED:` (an HTTP response was received but the status or match check failed), or `ERROR:` (no HTTP response — DNS, TCP, TLS, or timeout failure, with the reason).
+The `http check result` string always starts with `OK:`, `FAILED:` (an HTTP response was received but the status or match check failed), or `ERROR:` (no HTTP response - DNS, TCP, TLS, or timeout failure, with the reason).
 
-`http check last error` and `http check last error time` capture the most recent failed check even after it clears: the plugin only includes those keys in a report when the check fails, so a subsequent successful report does not overwrite the previously retrieved values in BigFix — they persist until the next error replaces them.
+`http check last error` and `http check last error time` capture the most recent failed check even after it clears: the plugin only includes those keys in a report when the check fails, so a subsequent successful report does not overwrite the previously retrieved values in BigFix - they persist until the next error replaces them.
 
 ## Test without a Proxy Agent
 
@@ -130,7 +140,7 @@ python plugin/servermon.py --config servermon.toml --commandDir /tmp/pending
 cat /tmp/reports/*.report
 ```
 
-Troubleshooting: every run writes a rotating log (1 MiB × 3 backups) to `Logs\servermon.log` under the plugin folder by default, creating the directory if needed. Use `--log-file <path>` in the `ExecutablePath` to log somewhere else, and `--log-level DEBUG` for more detail. If the log file cannot be written (e.g. permissions), the plugin logs to stderr and keeps running.
+Troubleshooting: every run writes a rotating log (1 MiB * 3 backups) to `Logs\servermon.log` under the plugin folder by default, creating the directory if needed. Use `--log-file <path>` in the `ExecutablePath` to log somewhere else, and `--log-level DEBUG` for more detail. If the log file cannot be written (e.g. permissions), the plugin logs to stderr and keeps running.
 
 ## Develop
 
@@ -143,5 +153,5 @@ The tests spin up a local HTTP server, so no network access is needed.
 
 ## Related
 
-- https://github.com/bigfix/trask — the (outdated) reference proxy agent plugin this protocol is based on
+- https://github.com/bigfix/trask - the (outdated) reference proxy agent plugin this protocol is based on
 - https://github.com/spulec/uncurl

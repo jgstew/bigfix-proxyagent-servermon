@@ -1,11 +1,7 @@
 import pytest
 
-from servermon.config import (
-    DEFAULT_TIMEOUT_SECONDS,
-    DEFAULT_USER_AGENT,
-    ConfigError,
-    load_config,
-)
+from servermon.config import (DEFAULT_TIMEOUT_SECONDS, DEFAULT_USER_AGENT,
+                              ConfigError, load_config)
 
 
 def write_config(tmp_path, text):
