@@ -1,7 +1,8 @@
 import pytest
 
 from servermon.config import (DEFAULT_TIMEOUT_SECONDS, DEFAULT_USER_AGENT,
-                              ConfigError, load_config, set_url_check_interval)
+                              ConfigError, load_config, remove_url_entry,
+                              set_url_check_interval)
 
 
 def write_config(tmp_path, text):
@@ -168,6 +169,43 @@ def test_set_url_check_interval_unknown_url(tmp_path):
     path = write_config(tmp_path, SET_INTERVAL_CONFIG)
     with pytest.raises(ConfigError, match="no \\[\\[urls\\]\\] entry"):
         set_url_check_interval(path, "https://nope.example.com", 60)
+
+
+def test_empty_urls_list_is_allowed(tmp_path):
+    config = load_config(write_config(tmp_path, "urls = []\n"))
+    assert config.urls == ()
+
+
+def test_remove_url_entry(tmp_path):
+    path = write_config(tmp_path, SET_INTERVAL_CONFIG)
+    remove_url_entry(path, "https://one.example.com")
+
+    config = load_config(path)
+    assert [entry.url for entry in config.urls] == ["https://two.example.com"]
+    text = path.read_text(encoding="utf-8")
+    assert "# global comment" in text  # comments outside the block survive
+    assert "one.example.com" not in text
+
+
+def test_remove_last_url_entry_inserts_empty_list(tmp_path):
+    path = write_config(
+        tmp_path,
+        """
+        [[urls]]
+        url = "https://only.example.com"
+        """,
+    )
+    remove_url_entry(path, "https://only.example.com")
+
+    config = load_config(path)
+    assert config.urls == ()
+    assert "urls = []" in path.read_text(encoding="utf-8")
+
+
+def test_remove_url_entry_unknown_url(tmp_path):
+    path = write_config(tmp_path, SET_INTERVAL_CONFIG)
+    with pytest.raises(ConfigError, match="no \\[\\[urls\\]\\] entry"):
+        remove_url_entry(path, "https://nope.example.com")
 
 
 def test_missing_file(tmp_path):

@@ -7,13 +7,15 @@ import itertools
 import logging
 import os
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 from .checker import CheckResult, check_url
 from .command import Command, CommandError
-from .config import Config, ConfigError, UrlEntry, set_url_check_interval
+from .config import (Config, ConfigError, UrlEntry, remove_url_entry,
+                     set_url_check_interval)
 from .device import build_report, device_id, device_name
 from .state import DeviceState
 from .util import write_json_atomic
@@ -23,6 +25,7 @@ log = logging.getLogger(__name__)
 MAX_PARALLEL_CHECKS = 8
 
 SET_REFRESH_INTERVAL = "set refresh interval"
+DELETE_DEVICE = "delete device"
 
 # Command result files use the spec-suggested "<commandID>-<PID>-<seq>.json"
 # naming so concurrently running plugin instances can never collide.
@@ -65,6 +68,8 @@ class ServerMonPlugin:
             self._process_refresh(command)
         elif command.name == SET_REFRESH_INTERVAL:
             self._process_set_refresh_interval(command)
+        elif command.name == DELETE_DEVICE:
+            self._process_delete_device(command)
         else:
             self._process_unsupported(command)
 
@@ -87,7 +92,16 @@ class ServerMonPlugin:
         if not command.command_id:
             # Honor per-URL check_interval_minutes for Proxy Agent driven
             # refreshes; action-driven ones (with a commandID) always check.
-            entries = [e for e in entries if self._is_due(e)]
+            # A skipped URL still gets its cached report re-submitted: the
+            # Proxy Agent must always receive a report for a refresh (a
+            # pending action waits on it), only the HTTP check is skipped.
+            due = []
+            for entry in entries:
+                if self._is_due(entry) or not self._replay_cached_report(
+                    entry, command
+                ):
+                    due.append(entry)
+            entries = due
             if not entries:
                 _remove_command_file(command)
                 return
@@ -168,6 +182,74 @@ class ServerMonPlugin:
         )
         _remove_command_file(command)
 
+    def _process_delete_device(self, command: Command) -> None:
+        """Actionscript "delete device": stop monitoring the targeted URL.
+
+        Removes the [[urls]] entry from servermon.toml and the device's
+        history from the state file. With no further reports, the device
+        expires from BigFix after DeviceReportExpirationIntervalHours (or
+        delete the computer from the console for immediate removal).
+        """
+        outcome = "Error"
+        entries = self._match_target(command.target_device, command.target_hint)
+        if not entries:
+            log.warning(
+                "%s: no URL in config for device %r",
+                DELETE_DEVICE,
+                command.target_device,
+            )
+        elif self.config_path is None:
+            log.warning("%s: no config file path to update", DELETE_DEVICE)
+        else:
+            try:
+                remove_url_entry(self.config_path, entries[0].url)
+                self.state.forget(device_id(entries[0].url))
+                self.state.save()
+                # Also drop it from the in-memory config so a later command
+                # in this same invocation cannot re-report the device.
+                remaining = tuple(e for e in self.config.urls if e is not entries[0])
+                self.config = replace(self.config, urls=remaining)
+                outcome = "Completed"
+                log.info("%s: stopped monitoring %s", DELETE_DEVICE, entries[0].url)
+            except ConfigError as error:
+                log.warning("%s failed: %s", DELETE_DEVICE, error)
+
+        _write_command_result(
+            command,
+            [
+                {
+                    "CommandID": command.command_id,
+                    "DeviceID": command.target_device,
+                    "Result": outcome,
+                }
+            ],
+        )
+        _remove_command_file(command)
+
+    def _replay_cached_report(self, entry: UrlEntry, command: Command) -> bool:
+        """Re-submit the cached report for a URL within its check interval.
+
+        Report freshness advances ("last server communication" is now) but
+        all check data keeps its cached values. Returns False when there is
+        no cached report yet, in which case the caller checks for real.
+        """
+        report = self.state.cached_report(device_id(entry.url))
+        if report is None:
+            return False
+        report["last server communication"] = email.utils.format_datetime(
+            datetime.now().astimezone()
+        )
+        if command.device_report_sequence is not None:
+            report["device report sequence"] = command.device_report_sequence
+            report["deviceReportSequence"] = command.device_report_sequence
+        report_path = command.output_directory / f"{report['device id']}.report"
+        write_json_atomic(report_path, report)
+        log.info(
+            "%s: re-submitted cached report (within check interval)",
+            report["computer name"],
+        )
+        return True
+
     def _match_target(self, target_device: str, target_hint: str) -> list[UrlEntry]:
         """Config entries for a targeted device: by device id, falling back
         to the target hint (the device's url, per TargetHintRelevance in.
@@ -239,6 +321,9 @@ class ServerMonPlugin:
             report = build_report(
                 entry, result, sequence=sequence, device_state=device_state
             )
+            # Cache the report so refreshes within this URL's check interval
+            # can re-submit it without a new HTTP check.
+            self.state.store_report(device_id(entry.url), report)
             rows.append((entry, result, report))
         self.state.save()
         return rows

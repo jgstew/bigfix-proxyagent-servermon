@@ -85,8 +85,12 @@ def parse_config(raw: dict[str, Any], source: str = "<config>") -> Config:
         raise ConfigError(f"{source}: settings.user_agent must be a non-empty string")
 
     raw_urls = raw.get("urls")
-    if not isinstance(raw_urls, list) or not raw_urls:
-        raise ConfigError(f"{source}: at least one [[urls]] entry is required")
+    if not isinstance(raw_urls, list):
+        # An explicitly-empty list is allowed (e.g. after "delete device"
+        # removed the last entry); a missing key is still a config mistake.
+        raise ConfigError(
+            f"{source}: at least one [[urls]] entry is required (or urls = [])"
+        )
 
     entries = [
         _parse_url_entry(item, f"{source}: [[urls]] entry {i}")
@@ -155,6 +159,13 @@ def _parse_url_entry(item: Any, where: str) -> UrlEntry:
     )
 
 
+# Line-level patterns for in-place TOML edits (comments/formatting preserved).
+_URL_LINE_RE = re.compile(r"^\s*url\s*=\s*([\"'])(?P<url>.*)\1\s*(#.*)?$")
+_INTERVAL_LINE_RE = re.compile(r"^\s*check_interval_minutes\s*=")
+_TABLE_HEADER_RE = re.compile(r"^\s*\[")
+_URLS_HEADER_RE = re.compile(r"^\s*\[\[urls\]\]")
+
+
 def set_url_check_interval(path: Path | str, url: str, minutes: int) -> None:
     """Set ``check_interval_minutes`` for one ``[[urls]]`` entry by editing
     the TOML file in place, preserving comments and formatting.
@@ -163,41 +174,79 @@ def set_url_check_interval(path: Path | str, url: str, minutes: int) -> None:
     the entry cannot be found or the edited file would not parse.
     """
     path = Path(path)
-    try:
-        text = path.read_text(encoding="utf-8")
-    except OSError as error:
-        raise ConfigError(f"cannot read {path}: {error}") from error
-
-    lines = text.splitlines()
-    url_line_re = re.compile(r"^\s*url\s*=\s*([\"'])(?P<url>.*)\1\s*(#.*)?$")
-    interval_line_re = re.compile(r"^\s*check_interval_minutes\s*=")
-    table_header_re = re.compile(r"^\s*\[")
-
-    url_index = next(
-        (
-            i
-            for i, line in enumerate(lines)
-            if (m := url_line_re.match(line)) and m.group("url") == url
-        ),
-        None,
-    )
-    if url_index is None:
-        raise ConfigError(f"{path}: no [[urls]] entry with url = {url!r} found")
+    lines = _read_config_lines(path)
+    url_index = _find_url_line(lines, url, path)
 
     # This entry's table ends at the next table header (or EOF).
     end = next(
-        (i for i in range(url_index + 1, len(lines)) if table_header_re.match(lines[i])),
+        (
+            i
+            for i in range(url_index + 1, len(lines))
+            if _TABLE_HEADER_RE.match(lines[i])
+        ),
         len(lines),
     )
 
     new_line = f"check_interval_minutes = {minutes}"
     for i in range(url_index + 1, end):
-        if interval_line_re.match(lines[i]):
+        if _INTERVAL_LINE_RE.match(lines[i]):
             lines[i] = new_line
             break
     else:
         lines.insert(url_index + 1, new_line)
 
+    _write_validated_config(path, lines)
+
+
+def remove_url_entry(path: Path | str, url: str) -> None:
+    """Remove one ``[[urls]]`` entry from the TOML file (in-place edit).
+
+    Used by the "delete device" action command. If the last entry is
+    removed, ``urls = []`` is inserted so the file still loads.
+    """
+    path = Path(path)
+    lines = _read_config_lines(path)
+    url_index = _find_url_line(lines, url, path)
+
+    start = next(
+        (i for i in range(url_index, -1, -1) if _URLS_HEADER_RE.match(lines[i])),
+        None,
+    )
+    if start is None:
+        raise ConfigError(f"{path}: no [[urls]] header found above url = {url!r}")
+    end = next(
+        (
+            i
+            for i in range(url_index + 1, len(lines))
+            if _TABLE_HEADER_RE.match(lines[i])
+        ),
+        len(lines),
+    )
+
+    del lines[start:end]
+    if not any(_URLS_HEADER_RE.match(line) for line in lines):
+        # Top-level keys must appear before any table header.
+        lines.insert(0, "urls = []")
+
+    _write_validated_config(path, lines)
+
+
+def _read_config_lines(path: Path) -> list[str]:
+    try:
+        return path.read_text(encoding="utf-8").splitlines()
+    except OSError as error:
+        raise ConfigError(f"cannot read {path}: {error}") from error
+
+
+def _find_url_line(lines: list[str], url: str, path: Path) -> int:
+    for i, line in enumerate(lines):
+        found = _URL_LINE_RE.match(line)
+        if found and found.group("url") == url:
+            return i
+    raise ConfigError(f"{path}: no [[urls]] entry with url = {url!r} found")
+
+
+def _write_validated_config(path: Path, lines: list[str]) -> None:
     new_text = "\n".join(lines) + "\n"
     # Refuse to write a config that would not load back.
     try:

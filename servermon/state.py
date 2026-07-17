@@ -46,10 +46,11 @@ class DeviceState:
     def __init__(self, path: Path | None = None) -> None:
         self.path = path
         self._data: dict[str, dict[str, Any]] = _read_state(path)
-        # Devices updated by this instance, kept separately so save() can
-        # merge them over the file's current contents instead of overwriting
-        # it wholesale (see save()).
+        # Devices updated/removed by this instance, kept separately so save()
+        # can merge them over the file's current contents instead of
+        # overwriting it wholesale (see save()).
         self._updates: dict[str, dict[str, Any]] = {}
+        self._removals: set[str] = set()
 
     def record(self, device_id: str, result: CheckResult) -> DeviceRecord:
         """Record the result of a check; return the device's history.
@@ -75,6 +76,29 @@ class DeviceState:
         value = self._data.get(device_id, {}).get("last check")
         return value if isinstance(value, str) else None
 
+    def store_report(self, device_id: str, report: dict[str, Any]) -> None:
+        """Cache the device's report so refreshes within its check interval
+        can re-submit it without performing a new HTTP check.
+        """
+        entry = dict(self._data.get(device_id, {}))
+        entry["last report"] = {
+            key: value
+            for key, value in report.items()
+            if key not in ("device report sequence", "deviceReportSequence")
+        }
+        self._data[device_id] = entry
+        self._updates[device_id] = entry
+
+    def cached_report(self, device_id: str) -> dict[str, Any] | None:
+        report = self._data.get(device_id, {}).get("last report")
+        return dict(report) if isinstance(report, dict) else None
+
+    def forget(self, device_id: str) -> None:
+        """Drop all history for a device (used by "delete device")."""
+        self._data.pop(device_id, None)
+        self._updates.pop(device_id, None)
+        self._removals.add(device_id)
+
     def save(self) -> None:
         if self.path is None:
             return
@@ -85,6 +109,8 @@ class DeviceState:
             # instance's updates so theirs are not rolled back.
             current = _read_state(self.path)
             current.update(self._updates)
+            for device in self._removals:
+                current.pop(device, None)
             write_json_atomic(self.path, current)
         except OSError as error:
             # Losing history must not break monitoring itself.
@@ -131,6 +157,8 @@ def _read_state(path: Path | None) -> dict[str, dict[str, Any]]:
             cleaned["last contact"] = entry["last contact"]
         if isinstance(entry.get("last check"), str):
             cleaned["last check"] = entry["last check"]
+        if isinstance(entry.get("last report"), dict):
+            cleaned["last report"] = entry["last report"]
         if cleaned:
             state[device] = cleaned
     return state

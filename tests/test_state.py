@@ -169,3 +169,43 @@ def test_corrupt_state_file_starts_fresh(tmp_path):
 
 def test_save_without_path_is_noop():
     DeviceState().save()  # must not raise
+
+
+def test_store_report_strips_sequence_and_round_trips(tmp_path):
+    path = tmp_path / "state.json"
+    report = {
+        "device id": "dev1",
+        "http response code": 200,
+        "device report sequence": 7,
+        "deviceReportSequence": 7,
+    }
+
+    first = DeviceState(path)
+    first.store_report("dev1", report)
+    first.save()
+
+    cached = DeviceState(path).cached_report("dev1")
+    assert cached["http response code"] == 200
+    assert "device report sequence" not in cached
+    assert "deviceReportSequence" not in cached
+
+
+def test_cached_report_missing_returns_none():
+    assert DeviceState().cached_report("dev1") is None
+
+
+def test_forget_removes_device_even_after_merge(tmp_path):
+    path = tmp_path / "state.json"
+    state = DeviceState(path)
+    state.record("dev1", make_result(False, "FAILED: HTTP 500 (1 ms)"))
+    state.save()
+
+    # A fresh instance forgets the device; the file copy must not resurrect
+    # it through the merge-on-save logic.
+    second = DeviceState(path)
+    second.forget("dev1")
+    second.save()
+
+    assert DeviceState(path).record(
+        "dev1", make_result(True, "OK: HTTP 200 OK (1 ms)")
+    ).last_error is None

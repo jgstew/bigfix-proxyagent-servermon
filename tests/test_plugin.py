@@ -1,10 +1,12 @@
 """End-to-end tests: command files in, device reports / command results out."""
 
+import email.utils
 import json
+from datetime import datetime
 
 import pytest
 
-from servermon.config import Config, UrlEntry
+from servermon.config import Config, UrlEntry, load_config
 from servermon.device import device_id
 from servermon.plugin import ServerMonPlugin
 
@@ -315,30 +317,67 @@ def test_action_refresh_success_reports_completed(http_server, dirs):
     assert result[0]["Result"] == "Completed"
 
 
-def test_check_interval_skips_recently_checked_url(http_server, dirs, tmp_path):
+def test_check_interval_replays_cached_report(http_server, dirs, tmp_path):
+    """Within the check interval, no new HTTP check happens but the cached
+    report is still re-submitted (fresh), so pending actions and the Proxy.
+
+    Agent keep flowing.
+    """
     pending, output = dirs
+    url = f"{http_server}/ok"
+    target = device_id(url)
+    now = email.utils.format_datetime(datetime.now().astimezone())
+    # A sentinel response code proves the report came from the cache.
+    cached_report = {
+        "device id": target,
+        "computer name": "cached-device",
+        "data source": "servermon",
+        "http response code": 299,
+        "last check time": "Mon, 13 Jul 2026 07:00:00 -0400",
+        "last server communication": "Mon, 13 Jul 2026 07:00:00 -0400",
+    }
     state_file = tmp_path / "servermon-state.json"
-    config = Config(
-        urls=(UrlEntry(url=f"{http_server}/ok", check_interval_minutes=60),),
-        timeout_seconds=5,
+    state_file.write_text(
+        json.dumps({target: {"last check": now, "last report": cached_report}}),
+        encoding="utf-8",
     )
-
-    # First heartbeat refresh: never checked -> checked and reported.
-    plugin = ServerMonPlugin(config, state_file=state_file)
-    write_command(pending, {"CommandName": "refresh", "OutputDirectory": str(output)})
-    plugin.process_command_dir(pending)
-    report_path = output / f"{device_id(f'{http_server}/ok')}.report"
-    assert report_path.is_file()
-
-    # Immediate second heartbeat: within the interval -> skipped entirely.
-    report_path.unlink()
+    config = Config(
+        urls=(UrlEntry(url=url, check_interval_minutes=60),), timeout_seconds=5
+    )
     plugin = ServerMonPlugin(config, state_file=state_file)
     command_file = write_command(
         pending, {"CommandName": "refresh", "OutputDirectory": str(output)}
     )
+
     plugin.process_command_dir(pending)
-    assert not report_path.is_file()
-    assert not command_file.is_file()  # still acknowledged
+
+    report = read_report(output, url)
+    assert report["http response code"] == 299  # cached, not re-checked
+    assert report["last check time"] == "Mon, 13 Jul 2026 07:00:00 -0400"
+    # ...but the report itself is fresh so the Proxy Agent treats it as new.
+    assert report["last server communication"] != "Mon, 13 Jul 2026 07:00:00 -0400"
+    assert not command_file.is_file()
+
+
+def test_check_interval_without_cache_checks_anyway(http_server, dirs, tmp_path):
+    pending, output = dirs
+    url = f"{http_server}/ok"
+    now = email.utils.format_datetime(datetime.now().astimezone())
+    state_file = tmp_path / "servermon-state.json"
+    # Recently checked, but no cached report (e.g. state from an older
+    # plugin version): must fall back to a real check.
+    state_file.write_text(
+        json.dumps({device_id(url): {"last check": now}}), encoding="utf-8"
+    )
+    config = Config(
+        urls=(UrlEntry(url=url, check_interval_minutes=60),), timeout_seconds=5
+    )
+    plugin = ServerMonPlugin(config, state_file=state_file)
+    write_command(pending, {"CommandName": "refresh", "OutputDirectory": str(output)})
+
+    plugin.process_command_dir(pending)
+
+    assert read_report(output, url)["http response code"] == 200
 
 
 def test_check_interval_elapsed_checks_again(http_server, dirs, tmp_path):
@@ -486,6 +525,108 @@ def test_set_refresh_interval_without_config_path(http_server, dirs):
         next(iter(output.glob("557-0-*.json"))).read_text(encoding="utf-8")
     )
     assert result[0]["Result"] == "Error"
+
+
+def write_two_url_config(tmp_path, http_server):
+    path = tmp_path / "servermon.toml"
+    path.write_text(
+        f"""
+        # keep me
+        [[urls]]
+        url = "{http_server}/ok"
+
+        [[urls]]
+        url = "{http_server}/other"
+        check_interval_minutes = 60
+        """,
+        encoding="utf-8",
+    )
+    return path
+
+
+def test_delete_device_command(http_server, dirs, tmp_path):
+    pending, output = dirs
+    config_path = write_two_url_config(tmp_path, http_server)
+    state_file = tmp_path / "servermon-state.json"
+    target = device_id(f"{http_server}/other")
+    state_file.write_text(
+        json.dumps({target: {"last check": "whenever"}}), encoding="utf-8"
+    )
+    plugin = ServerMonPlugin(
+        load_config(config_path), state_file=state_file, config_path=config_path
+    )
+    command_file = write_command(
+        pending,
+        {
+            "commandName": "delete device",
+            "outputDirectory": str(output),
+            "targetDevice": target,
+            "commandID": "777-0",
+        },
+    )
+
+    plugin.process_command_dir(pending)
+
+    result = json.loads(
+        next(iter(output.glob("777-0-*.json"))).read_text(encoding="utf-8")
+    )
+    assert result == [{"CommandID": "777-0", "DeviceID": target, "Result": "Completed"}]
+    remaining = load_config(config_path)
+    assert [e.url for e in remaining.urls] == [f"{http_server}/ok"]
+    assert "# keep me" in config_path.read_text(encoding="utf-8")
+    # Device history is gone from the state file too.
+    assert target not in json.loads(state_file.read_text(encoding="utf-8"))
+    assert not command_file.is_file()
+
+
+def test_delete_device_last_entry_leaves_valid_config(http_server, dirs, tmp_path):
+    pending, output = dirs
+    config_path = tmp_path / "servermon.toml"
+    config_path.write_text(
+        f'[[urls]]\nurl = "{http_server}/ok"\n', encoding="utf-8"
+    )
+    target = device_id(f"{http_server}/ok")
+    plugin = ServerMonPlugin(load_config(config_path), config_path=config_path)
+    write_command(
+        pending,
+        {
+            "commandName": "delete device",
+            "outputDirectory": str(output),
+            "targetDevice": target,
+            "commandID": "778-0",
+        },
+    )
+
+    plugin.process_command_dir(pending)
+
+    result = json.loads(
+        next(iter(output.glob("778-0-*.json"))).read_text(encoding="utf-8")
+    )
+    assert result[0]["Result"] == "Completed"
+    assert load_config(config_path).urls == ()
+
+
+def test_delete_device_unknown_target(http_server, dirs, tmp_path):
+    pending, output = dirs
+    config_path = write_two_url_config(tmp_path, http_server)
+    plugin = ServerMonPlugin(load_config(config_path), config_path=config_path)
+    write_command(
+        pending,
+        {
+            "commandName": "delete device",
+            "outputDirectory": str(output),
+            "targetDevice": "no-such-device",
+            "commandID": "779-0",
+        },
+    )
+
+    plugin.process_command_dir(pending)
+
+    result = json.loads(
+        next(iter(output.glob("779-0-*.json"))).read_text(encoding="utf-8")
+    )
+    assert result[0]["Result"] == "Error"
+    assert len(load_config(config_path).urls) == 2  # untouched
 
 
 def test_unreachable_url_keeps_stale_contact_time(closed_port_url, dirs, tmp_path):
