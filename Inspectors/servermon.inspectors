@@ -6,6 +6,7 @@ http check last error: string
 http check last error time: string
 check success: boolean
 match found: boolean
+bad string found: boolean
 response time ms: integer
 last check time: string
 tls version: string

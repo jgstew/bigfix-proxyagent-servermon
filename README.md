@@ -51,6 +51,9 @@ timeout_seconds = 30            # per-request timeout, overridable per URL
 url = "https://example.com"
 match = "Example Domain"        # optional: fail the check unless this string
                                 # appears in the response body or headers
+no_match = "database error"     # optional: fail the check if this
+                                # case-insensitive regex matches the body or
+                                # headers (reachable but serving a bad page)
 
 [[urls]]
 url = "https://internal.example.local:8443/health"
@@ -63,8 +66,9 @@ Notes:
 - The plugin uses `servermon.toml` in the repo root (next to `plugin/`) by default. A path passed via `--config` is used if it exists; if not, the plugin falls back to the default location. The absolute path of the config actually used is logged at startup.
 - Each `[[urls]]` entry becomes one device. Two entries that differ only by scheme or a trailing slash would be the same device, so the config loader rejects them.
 - `match` is a case-sensitive substring search against the response headers and the first 1 MiB of the body.
+- `no_match` is a case-insensitive **regex** searched the same way; a hit fails the check even on HTTP 200 - for catching pages like "Could not connect to the database" served with a success status.
 - Redirects are followed; the final response is what gets reported.
-- A URL that returns HTTP 4xx/5xx, fails its `match`, or does not respond at all reports `check success = false` (an unreachable server reports response code `0`).
+- A URL that returns HTTP 4xx/5xx, fails its `match`, trips its `no_match`, or does not respond at all reports `check success = false` (an unreachable server reports response code `0`).
 
 ### Check interval - [settings.json](settings.json)
 
@@ -98,6 +102,7 @@ Which bundles were loaded is logged at startup (`TLS trust: loaded ...`); a bund
 | `http check last error time` | string | when that error occurred (castable `as time`) |
 | `check success` | boolean | `true` |
 | `match found` | boolean | only present when `match` is configured |
+| `bad string found` | boolean | only present when `no_match` is configured; `true` = reachable but serving known-bad content |
 | `url` | string | `https://example.com` |
 | `response time ms` | integer | `231` |
 | `last check time` | string | `Wed, 15 Jul 2026 14:00:00 -0400` (castable `as time`) |

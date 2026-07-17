@@ -161,6 +161,16 @@ class TestBuildReport:
         assert with_seq["device report sequence"] == 2
         assert with_seq["deviceReportSequence"] == 2
 
+    def test_bad_string_found_only_when_no_match_configured(self):
+        plain = build_report(UrlEntry(url="https://example.com"), make_result())
+        assert "bad string found" not in plain
+
+        with_no_match = build_report(
+            UrlEntry(url="https://example.com", no_match="database error"),
+            make_result(success=False, bad_string_found=True),
+        )
+        assert with_no_match["bad string found"] is True
+
     def test_match_found_only_when_match_configured(self):
         no_match = build_report(UrlEntry(url="https://example.com"), make_result())
         assert "match found" not in no_match

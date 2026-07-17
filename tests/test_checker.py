@@ -83,6 +83,49 @@ def test_match_searched_in_error_response(http_server):
     assert result.success is False
 
 
+def test_no_match_hit_fails_check(http_server):
+    # /ok body: "hello from the servermon test server", HTTP 200.
+    result = check(f"{http_server}/ok", no_match="SERVERMON TEST")
+    assert result.status_code == 200
+    assert result.success is False
+    assert result.bad_string_found is True
+    assert "no_match pattern" in result.detail
+    assert result.detail.startswith("FAILED:")
+
+
+def test_no_match_is_regex(http_server):
+    result = check(f"{http_server}/ok", no_match=r"hello\s+from\s+the")
+    assert result.success is False
+    assert result.bad_string_found is True
+
+
+def test_no_match_absent_passes(http_server):
+    result = check(f"{http_server}/ok", no_match="could not connect to the database")
+    assert result.success is True
+    assert result.bad_string_found is False
+
+
+def test_no_match_searches_headers(http_server):
+    result = check(f"{http_server}/ok", no_match="HEADER-NEEDLE")
+    assert result.success is False
+    assert "in headers" in result.detail
+
+
+def test_no_match_not_configured(http_server):
+    result = check(f"{http_server}/ok")
+    assert result.bad_string_found is None
+
+
+def test_match_and_no_match_combined(http_server):
+    # match satisfied but no_match trips -> still a failure.
+    result = check(
+        f"{http_server}/ok", match="hello from", no_match="test server"
+    )
+    assert result.match_found is True
+    assert result.bad_string_found is True
+    assert result.success is False
+
+
 def test_connection_refused(closed_port_url):
     result = check(closed_port_url)
     assert result.status_code == 0

@@ -40,6 +40,7 @@ These properties read "no error recorded" for a device that has never failed.</p
 		<Property Name="ServerMon Version" ID="9"><![CDATA[servermon version]]></Property>
 		<Property Name="HTTP Check Last Error" ID="10"><![CDATA[if exists http check last error then http check last error else "no error recorded"]]></Property>
 		<Property Name="HTTP Check Last Error Time" ID="11"><![CDATA[if exists http check last error time then http check last error time else "no error recorded"]]></Property>
+		<Property Name="Bad String Found" ID="14"><![CDATA[if exists bad string found then (bad string found) as string else "no no_match configured"]]></Property>
 		<Property Name="TLS Version" ID="12"><![CDATA[if exists tls version then tls version else "n/a"]]></Property>
 		<Property Name="Remote IP Address" ID="13"><![CDATA[if exists remote ip address then remote ip address else "n/a"]]></Property>
 	</Analysis>

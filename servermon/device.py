@@ -87,6 +87,10 @@ def build_report(
     # "exists match found of ..." to distinguish unconfigured from failed.
     if entry.match is not None:
         report["match found"] = bool(result.match_found)
+    # Likewise only present when a no_match pattern is configured; true means
+    # the server was reachable but served the known-bad content.
+    if entry.no_match is not None:
+        report["bad string found"] = bool(result.bad_string_found)
     # The most recent error this device has ever had (tracked in the plugin's
     # state file, see state.py). Device reports fully replace prior data in
     # BigFix, so this must be re-sent every report to stay visible after a

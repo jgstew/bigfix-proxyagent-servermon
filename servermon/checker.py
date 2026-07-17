@@ -6,6 +6,7 @@ import email.utils
 import functools
 import http.client
 import logging
+import re
 import socket
 import ssl
 import threading
@@ -51,6 +52,7 @@ class CheckResult:
     server: str  # Server response header, "" when absent or unreachable
     peer_ip: str | None = None  # IP of the remote server actually connected to
     tls_version: str | None = None  # e.g. "TLSv1.3"; None for plain http
+    bad_string_found: bool | None = None  # None when no_match is not configured
 
 
 def check_url(entry: UrlEntry, *, timeout: float, user_agent: str) -> CheckResult:
@@ -207,18 +209,29 @@ def _from_response(
     peer_ip: str | None = None,
     tls_version: str | None = None,
 ) -> CheckResult:
+    header_text, body_text = _response_texts(headers, body)
+
     match_found: bool | None = None
     match_note = ""
     if entry.match is not None:
-        location = _find_match(entry.match, headers, body)
+        location = _find_substring(entry.match, header_text, body_text)
         match_found = location is not None
         if match_found:
             match_note = f"; matched {entry.match!r} in {location}"
         else:
             match_note = f"; {entry.match!r} not found in headers or body"
 
+    # A no_match hit means the server is reachable but serving a known-bad
+    # page (e.g. "Could not connect to the database").
+    bad_string_found: bool | None = None
+    if entry.no_match is not None:
+        location = _find_pattern(entry.no_match, header_text, body_text)
+        bad_string_found = location is not None
+        if bad_string_found:
+            match_note += f"; no_match pattern {entry.no_match!r} found in {location}"
+
     status_ok = 200 <= status < 400
-    success = status_ok and match_found is not False
+    success = status_ok and match_found is not False and bad_string_found is not True
 
     reason = http.client.responses.get(status, "")
     status_text = f"HTTP {status} {reason}".rstrip()
@@ -236,24 +249,42 @@ def _from_response(
         server=str(headers.get("Server", "")).strip() if headers is not None else "",
         peer_ip=peer_ip,
         tls_version=tls_version,
+        bad_string_found=bad_string_found,
     )
 
 
-def _find_match(match: str, headers: Message | None, body: bytes) -> str | None:
-    """Return where the match string was found ("headers" or "body"), or None."""
+def _response_texts(headers: Message | None, body: bytes) -> tuple[str, str]:
+    """Decode the response into searchable (header text, body text)."""
     if headers is not None:
         header_text = "\r\n".join(f"{key}: {value}" for key, value in headers.items())
-        if match in header_text:
-            return "headers"
+    else:
+        header_text = ""
 
     charset = (
         headers.get_content_charset() if headers is not None else None
     ) or "utf-8"
     try:
-        text = body.decode(charset, errors="replace")
+        body_text = body.decode(charset, errors="replace")
     except LookupError:  # server declared a charset Python does not know
-        text = body.decode("utf-8", errors="replace")
-    if match in text:
+        body_text = body.decode("utf-8", errors="replace")
+    return header_text, body_text
+
+
+def _find_substring(match: str, header_text: str, body_text: str) -> str | None:
+    """Where the case-sensitive substring occurs ("headers"/"body"), or None."""
+    if match in header_text:
+        return "headers"
+    if match in body_text:
+        return "body"
+    return None
+
+
+def _find_pattern(pattern: str, header_text: str, body_text: str) -> str | None:
+    """Where the case-insensitive regex matches ("headers"/"body"), or None."""
+    compiled = re.compile(pattern, re.IGNORECASE)
+    if compiled.search(header_text):
+        return "headers"
+    if compiled.search(body_text):
         return "body"
     return None
 

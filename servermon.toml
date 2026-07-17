@@ -16,8 +16,11 @@ timeout_seconds = 30
 [[urls]]
 url = "https://example.com"
 # Optional: report failure unless this string appears in the response body
-# or headers (case-sensitive).
+# or headers (case-sensitive substring).
 match = "Example Domain"
+# Optional: report failure if this case-insensitive regex matches the
+# response body or headers (reachable, but serving a known-bad page).
+# no_match = "could not connect to( the)? database"
 
 [[urls]]
 url = "https://forum.bigfix.com"

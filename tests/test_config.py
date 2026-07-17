@@ -58,6 +58,34 @@ def test_full_config(tmp_path):
     assert config.timeout_for(second) == 2
 
 
+def test_no_match_option(tmp_path):
+    config = load_config(
+        write_config(
+            tmp_path,
+            """
+            [[urls]]
+            url = "https://example.com"
+            no_match = "could not connect to( the)? database"
+            """,
+        )
+    )
+    assert config.urls[0].no_match == "could not connect to( the)? database"
+
+
+def test_no_match_invalid_regex_rejected(tmp_path):
+    with pytest.raises(ConfigError, match="not a valid regex"):
+        load_config(
+            write_config(
+                tmp_path,
+                """
+                [[urls]]
+                url = "https://example.com"
+                no_match = "unclosed [bracket"
+                """,
+            )
+        )
+
+
 def test_missing_file(tmp_path):
     with pytest.raises(ConfigError, match="not found"):
         load_config(tmp_path / "nope.toml")

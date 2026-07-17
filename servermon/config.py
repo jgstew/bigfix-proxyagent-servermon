@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -13,7 +14,7 @@ from .device import device_name
 DEFAULT_TIMEOUT_SECONDS = 30.0
 DEFAULT_USER_AGENT = "bigfix-proxyagent-servermon"
 
-_URL_ENTRY_KEYS = {"url", "match", "verify_tls", "timeout_seconds"}
+_URL_ENTRY_KEYS = {"url", "match", "no_match", "verify_tls", "timeout_seconds"}
 
 
 class ConfigError(ValueError):
@@ -25,7 +26,8 @@ class UrlEntry:
     """One monitored URL from a ``[[urls]]`` table."""
 
     url: str
-    match: str | None = None
+    match: str | None = None  # case-sensitive substring that must be present
+    no_match: str | None = None  # case-insensitive regex that must NOT match
     verify_tls: bool = True
     timeout_seconds: float | None = None  # None -> use the global setting
 
@@ -115,6 +117,17 @@ def _parse_url_entry(item: Any, where: str) -> UrlEntry:
     if match is not None and (not isinstance(match, str) or not match):
         raise ConfigError(f"{where}: 'match' must be a non-empty string")
 
+    no_match = item.get("no_match")
+    if no_match is not None:
+        if not isinstance(no_match, str) or not no_match:
+            raise ConfigError(f"{where}: 'no_match' must be a non-empty string")
+        try:
+            re.compile(no_match)
+        except re.error as error:
+            raise ConfigError(
+                f"{where}: 'no_match' is not a valid regex: {error}"
+            ) from error
+
     verify_tls = item.get("verify_tls", True)
     if not isinstance(verify_tls, bool):
         raise ConfigError(f"{where}: 'verify_tls' must be true or false")
@@ -126,6 +139,7 @@ def _parse_url_entry(item: Any, where: str) -> UrlEntry:
     return UrlEntry(
         url=url,
         match=match,
+        no_match=no_match,
         verify_tls=verify_tls,
         timeout_seconds=None if timeout is None else float(timeout),
     )
