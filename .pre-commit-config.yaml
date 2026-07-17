@@ -59,7 +59,10 @@ repos:
   - repo: https://github.com/pycqa/flake8
     rev: 7.3.0
     hooks:
+      # see config in pyproject.toml [tool.flake8], read via Flake8-pyproject
       - id: flake8
+        additional_dependencies:
+          - Flake8-pyproject
 
   - repo: https://github.com/asottile/pyupgrade
     rev: v3.21.2
@@ -162,8 +165,8 @@ repos:
   # - repo: https://github.com/pycqa/pylint
   #   rev: v4.0.6
   #   hooks:
+  #     # config in pyproject.toml [tool.pylint.*]
   #     - id: pylint
-  #       args: [--rcfile=.pylintrc]
   #       additional_dependencies:
   #         - setuptools
   #         - pytest
