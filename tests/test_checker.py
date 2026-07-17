@@ -23,6 +23,8 @@ def test_success(http_server):
     assert result.match_found is None
     assert result.response_time_ms >= 0
     assert result.server == "servermon-test/1.0"
+    assert result.peer_ip == "127.0.0.1"
+    assert result.tls_version is None  # plain http test server
 
 
 def test_checked_at_is_bigfix_mime_time(http_server):

@@ -101,8 +101,25 @@ Which bundles were loaded is logged at startup (`TLS trust: loaded ...`); a bund
 | `url` | string | `https://example.com` |
 | `response time ms` | integer | `231` |
 | `last check time` | string | `Wed, 15 Jul 2026 14:00:00 -0400` (castable `as time`) |
+| `tls version` | string | `TLSv1.3` (absent for plain http / no connection) |
+| `remote ip address` | string | `172.66.147.243` (absent when nothing connected) |
 | `servermon version` | string | `0.1.0` |
 | `in proxy agent context` | boolean | `true` |
+
+### Built-in (reserved property) inspectors
+
+The proxy agent ships a `Version 3` inspector list that every plugin should fill in as far as it can, feeding the reserved console properties. servermon fills the ones that make sense for a URL device:
+
+| Built-in inspector | servermon reports |
+|---|---|
+| `device type` | `Web Server` |
+| `dns name` | the URL's hostname (`forum.bigfix.com`) |
+| `name of <operating system>` | the `Server` response header (`nginx`), else `servermon` |
+| `version of <operating system>` | the TLS protocol version (`1.3`) for https, else the plugin version |
+| `address of <ip interface>` (IP Address) | the remote server IP the check actually connected to |
+| `ipv6 interfaces of <network adapter>` | also filled when the connected peer is IPv6 |
+
+CPU, BIOS, drive, RAM, and logged-on-user inspectors are deliberately left unfilled (a URL has none of those); the console shows their default values. The connected peer IP and TLS version are read from the live check socket, so they reflect the actual connection, not just a DNS lookup - both are absent when the server was unreachable.
 
 A ready-to-import analysis exposing all of these as properties is provided in [analysis-servermon.bes](analysis-servermon.bes). Its applicability relevance (`in proxy agent context` AND `exists servermon version`) keeps it relevant only on devices reported by this plugin.
 

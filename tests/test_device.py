@@ -1,5 +1,6 @@
 import string
 
+from servermon import __version__
 from servermon.checker import CheckResult
 from servermon.config import UrlEntry
 from servermon.device import build_report, device_id, device_name
@@ -75,13 +76,64 @@ class TestBuildReport:
 
     def test_server_header_becomes_operating_system(self):
         report = build_report(UrlEntry(url="https://example.com"), make_result())
-        assert report["operating system"] == "nginx/1.25.3"
+        assert report["operating system"]["name"] == "nginx/1.25.3"
 
     def test_operating_system_fallback(self):
         report = build_report(
             UrlEntry(url="https://example.com"), make_result(server="")
         )
-        assert report["operating system"] == "servermon"
+        assert report["operating system"]["name"] == "servermon"
+
+    def test_os_version_is_plugin_version_for_plain_http(self):
+        report = build_report(UrlEntry(url="http://example.com"), make_result())
+        assert report["operating system"]["version"] == __version__
+        assert "tls version" not in report
+
+    def test_os_version_is_tls_version_for_https(self):
+        report = build_report(
+            UrlEntry(url="https://example.com"), make_result(tls_version="TLSv1.3")
+        )
+        assert report["operating system"]["version"] == "1.3"
+        assert report["tls version"] == "TLSv1.3"
+
+    def test_reserved_property_inspectors(self):
+        report = build_report(
+            UrlEntry(url="https://example.com:8443/health"), make_result()
+        )
+        assert report["device type"] == "Web Server"
+        assert report["dns name"] == "example.com"
+
+    def test_remote_ip_fills_network_inspectors(self):
+        report = build_report(
+            UrlEntry(url="https://example.com"), make_result(peer_ip="93.184.216.34")
+        )
+        assert report["remote ip address"] == "93.184.216.34"
+        interface = report["network"]["ip interfaces"][0]
+        assert interface["address"] == "93.184.216.34"
+        assert interface["loopback"] is False
+        assert "adapters" not in report["network"]
+
+    def test_loopback_ip_flagged(self):
+        report = build_report(
+            UrlEntry(url="http://localhost:8080"), make_result(peer_ip="127.0.0.1")
+        )
+        assert report["network"]["ip interfaces"][0]["loopback"] is True
+
+    def test_ipv6_ip_also_fills_adapters(self):
+        report = build_report(
+            UrlEntry(url="https://example.com"),
+            make_result(peer_ip="2606:2800:220:1:248:1893:25c8:1946"),
+        )
+        adapter = report["network"]["adapters"][0]
+        assert adapter["up"] is True
+        assert adapter["ipv6 interfaces"][0]["address"] == (
+            "2606:2800:220:1:248:1893:25c8:1946"
+        )
+
+    def test_no_network_when_no_connection(self):
+        report = build_report(UrlEntry(url="https://example.com"), make_result())
+        assert "network" not in report
+        assert "remote ip address" not in report
 
     def test_no_last_error_keys_on_success(self):
         report = build_report(UrlEntry(url="https://example.com"), make_result())

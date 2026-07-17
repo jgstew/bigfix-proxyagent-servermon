@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from email.message import Message
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from .config import UrlEntry
@@ -49,6 +49,8 @@ class CheckResult:
     match_found: bool | None  # None when no match string is configured
     checked_at: str  # local time in TIME_FORMAT
     server: str  # Server response header, "" when absent or unreachable
+    peer_ip: str | None = None  # IP of the remote server actually connected to
+    tls_version: str | None = None  # e.g. "TLSv1.3"; None for plain http
 
 
 def check_url(entry: UrlEntry, *, timeout: float, user_agent: str) -> CheckResult:
@@ -69,20 +71,36 @@ def check_url(entry: UrlEntry, *, timeout: float, user_agent: str) -> CheckResul
         with urllib.request.urlopen(
             request, timeout=timeout, context=context
         ) as response:
+            peer_ip, tls_version = _connection_info(response)
             body = response.read(MAX_BODY_BYTES)
             elapsed_ms = _elapsed_ms(started)
             return _from_response(
-                entry, response.status, response.headers, body, elapsed_ms, checked_at
+                entry,
+                response.status,
+                response.headers,
+                body,
+                elapsed_ms,
+                checked_at,
+                peer_ip=peer_ip,
+                tls_version=tls_version,
             )
     except urllib.error.HTTPError as error:
         # 4xx/5xx raise, but they are still HTTP responses worth reporting.
+        peer_ip, tls_version = _connection_info(error)
         try:
             body = error.read(MAX_BODY_BYTES)
         except OSError:
             body = b""
         elapsed_ms = _elapsed_ms(started)
         return _from_response(
-            entry, error.code, error.headers, body, elapsed_ms, checked_at
+            entry,
+            error.code,
+            error.headers,
+            body,
+            elapsed_ms,
+            checked_at,
+            peer_ip=peer_ip,
+            tls_version=tls_version,
         )
     except (
         urllib.error.URLError,
@@ -161,6 +179,24 @@ def _load_ca_bundle(context: ssl.SSLContext, cafile: str, label: str) -> None:
         log.warning("TLS trust: could not load %s (%s): %s", label, cafile, error)
 
 
+def _connection_info(response: Any) -> tuple[str | None, str | None]:
+    """Best-effort peer IP and TLS version from the response's live socket.
+
+    Reaches through http.client internals (there is no public API for this),
+    so any surprise just degrades to (None, None).
+    """
+    try:
+        fp = response.fp
+        if hasattr(fp, "fp"):  # HTTPError wraps the HTTPResponse
+            fp = fp.fp
+        sock = fp.raw._sock
+        peer = str(sock.getpeername()[0]).split("%")[0]  # drop IPv6 scope id
+        tls = sock.version() if isinstance(sock, ssl.SSLSocket) else None
+        return peer, tls
+    except Exception:
+        return None, None
+
+
 def _from_response(
     entry: UrlEntry,
     status: int,
@@ -168,6 +204,8 @@ def _from_response(
     body: bytes,
     elapsed_ms: int,
     checked_at: str,
+    peer_ip: str | None = None,
+    tls_version: str | None = None,
 ) -> CheckResult:
     match_found: bool | None = None
     match_note = ""
@@ -196,6 +234,8 @@ def _from_response(
         match_found=match_found,
         checked_at=checked_at,
         server=str(headers.get("Server", "")).strip() if headers is not None else "",
+        peer_ip=peer_ip,
+        tls_version=tls_version,
     )
 
 

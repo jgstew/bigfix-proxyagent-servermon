@@ -8,4 +8,6 @@ check success: boolean
 match found: boolean
 response time ms: integer
 last check time: string
+tls version: string
+remote ip address: string
 servermon version: string

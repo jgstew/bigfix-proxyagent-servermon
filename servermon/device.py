@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import hashlib
+import ipaddress
 import re
 from typing import TYPE_CHECKING, Any
+from urllib.parse import urlsplit
 
 from . import __version__
 
@@ -49,10 +51,21 @@ def build_report(
         "device id": device_id(entry.url),
         "data source": DATA_SOURCE,
         "computer name": device_name(entry.url),
-        # Surfaces the web server software (e.g. "nginx/1.25.3") as the
-        # device OS in the console; falls back to the plugin name when the
-        # server did not identify itself or did not respond.
-        "operating system": result.server or DATA_SOURCE,
+        # Reserved-property inspectors from the proxy agent's built-in
+        # inspector list, filled with the closest URL-device equivalents:
+        # the "OS" is the web server software (Server header), its version
+        # is the TLS protocol version (or the plugin version for plain
+        # http), and the DNS name is the URL's hostname.
+        "device type": "Web Server",
+        "dns name": urlsplit(entry.url).hostname or device_name(entry.url),
+        "operating system": {
+            "name": result.server or DATA_SOURCE,
+            "version": (
+                result.tls_version.removeprefix("TLSv")  # "TLSv1.3" -> "1.3"
+                if result.tls_version
+                else __version__
+            ),
+        },
         "in proxy agent context": True,
         "servermon version": __version__,
         "url": entry.url,
@@ -62,6 +75,14 @@ def build_report(
         "response time ms": result.response_time_ms,
         "last check time": result.checked_at,
     }
+    # TLS protocol version of the connection, and the remote IP actually
+    # connected to. The IP also feeds the reserved "IP Address" console
+    # property via the built-in network inspectors.
+    if result.tls_version is not None:
+        report["tls version"] = result.tls_version
+    if result.peer_ip is not None:
+        report["remote ip address"] = result.peer_ip
+        report["network"] = _network_structure(result.peer_ip)
     # Only present when a match string is configured, so relevance can use
     # "exists match found of ..." to distinguish unconfigured from failed.
     if entry.match is not None:
@@ -80,3 +101,30 @@ def build_report(
         report["device report sequence"] = sequence
         report["deviceReportSequence"] = sequence
     return report
+
+
+def _network_structure(peer_ip: str) -> dict[str, Any]:
+    """Model the remote server's IP as the device's built-in network
+    inspectors ("ip interfaces of network", "adapters of network").
+    """
+    try:
+        parsed = ipaddress.ip_address(peer_ip)
+        loopback = parsed.is_loopback
+        is_ipv6 = parsed.version == 6
+    except ValueError:
+        loopback = False
+        is_ipv6 = ":" in peer_ip
+
+    network: dict[str, Any] = {
+        "ip interfaces": [{"address": peer_ip, "loopback": loopback}],
+    }
+    if is_ipv6:
+        # The reserved "IPv6 Address" property reads addresses via adapters.
+        network["adapters"] = [
+            {
+                "up": True,
+                "loopback": loopback,
+                "ipv6 interfaces": [{"address": peer_ip}],
+            }
+        ]
+    return network
