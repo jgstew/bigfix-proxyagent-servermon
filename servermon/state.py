@@ -93,8 +93,23 @@ class DeviceState:
         report = self._data.get(device_id, {}).get("last report")
         return dict(report) if isinstance(report, dict) else None
 
+    def mark_pending_deletion(self, device_id: str) -> None:
+        """Flag a device for deletion without removing it yet.
+
+        "delete device" defers the actual removal until the device has been
+        reported one more time, so the Proxy Agent's post-action refresh gets
+        a device report and the action can transition out of "running".
+        """
+        entry = dict(self._data.get(device_id, {}))
+        entry["pending deletion"] = True
+        self._data[device_id] = entry
+        self._updates[device_id] = entry
+
+    def is_pending_deletion(self, device_id: str) -> bool:
+        return bool(self._data.get(device_id, {}).get("pending deletion"))
+
     def forget(self, device_id: str) -> None:
-        """Drop all history for a device (used by "delete device")."""
+        """Drop all history for a device (used to finalize "delete device")."""
         self._data.pop(device_id, None)
         self._updates.pop(device_id, None)
         self._removals.add(device_id)
@@ -159,6 +174,8 @@ def _read_state(path: Path | None) -> dict[str, dict[str, Any]]:
             cleaned["last check"] = entry["last check"]
         if isinstance(entry.get("last report"), dict):
             cleaned["last report"] = entry["last report"]
+        if entry.get("pending deletion") is True:
+            cleaned["pending deletion"] = True
         if cleaned:
             state[device] = cleaned
     return state

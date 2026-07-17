@@ -93,6 +93,9 @@ class ServerMonPlugin:
             entries = list(self.config.urls)
 
         new_entries: list[UrlEntry] = []
+        # Device ids that received a report this invocation (via a real check
+        # or a cached replay); used to finalize deferred deletions.
+        reported_ids: set[str] = set()
         if not command.command_id:
             # Honor per-URL check_interval_minutes for Proxy Agent driven
             # refreshes; action-driven ones (with a commandID) always check.
@@ -105,6 +108,8 @@ class ServerMonPlugin:
                     entry, command
                 ):
                     due.append(entry)
+                else:
+                    reported_ids.add(device_id(entry.url))  # replayed from cache
 
             # URLs newly added to servermon.toml have never been checked, and
             # a Proxy Agent that only sends per-device refreshes would never
@@ -124,6 +129,7 @@ class ServerMonPlugin:
 
             entries = due
             if not entries and not new_entries:
+                self._finalize_pending_deletions(reported_ids)
                 _remove_command_file(command)
                 return
 
@@ -132,6 +138,7 @@ class ServerMonPlugin:
             # Checked separately: the command's deviceReportSequence belongs
             # to the targeted device only, so it is not echoed here.
             rows += self.check_and_report(new_entries)
+        reported_ids.update(report["device id"] for _, _, report in rows)
 
         if command.command_id:
             # An actionscript-driven refresh (a "check now" action) carries a
@@ -156,6 +163,9 @@ class ServerMonPlugin:
                 report_path = command.output_directory / f"{report['device id']}.report"
                 write_json_atomic(report_path, report)
                 log.info("%s: %s", report["computer name"], result.detail)
+            # Now that the post-action refresh has been answered with a
+            # report, complete any deferred "delete device" removals.
+            self._finalize_pending_deletions(reported_ids)
         # Deleting the command file acknowledges the refresh is done; if
         # writing a report failed we raise before reaching this, leaving the
         # command in place for the next invocation to retry.
@@ -219,8 +229,12 @@ class ServerMonPlugin:
     def _process_delete_device(self, command: Command) -> None:
         """Actionscript "delete device": stop monitoring the targeted URL.
 
-        Removes the [[urls]] entry from servermon.toml and the device's
-        history from the state file. With no further reports, the device
+        The removal is *deferred*: the device is flagged for deletion but
+        left in the config so the Proxy Agent's post-action refresh still
+        gets a device report (without it the action would hang in "running").
+        The next refresh reports the device one last time and then finalizes
+        the removal - dropping the [[urls]] entry from servermon.toml and the
+        device's history from the state file. With no further reports it then
         expires from BigFix after DeviceReportExpirationIntervalHours (or
         delete the computer from the console for immediate removal).
         """
@@ -235,18 +249,14 @@ class ServerMonPlugin:
         elif self.config_path is None:
             log.warning("%s: no config file path to update", DELETE_DEVICE)
         else:
-            try:
-                remove_url_entry(self.config_path, entries[0].url)
-                self.state.forget(device_id(entries[0].url))
-                self.state.save()
-                # Also drop it from the in-memory config so a later command
-                # in this same invocation cannot re-report the device.
-                remaining = tuple(e for e in self.config.urls if e is not entries[0])
-                self.config = replace(self.config, urls=remaining)
-                outcome = "Completed"
-                log.info("%s: stopped monitoring %s", DELETE_DEVICE, entries[0].url)
-            except ConfigError as error:
-                log.warning("%s failed: %s", DELETE_DEVICE, error)
+            self.state.mark_pending_deletion(device_id(entries[0].url))
+            self.state.save()
+            outcome = "Completed"
+            log.info(
+                "%s: marked %s for deletion (finalized after next report)",
+                DELETE_DEVICE,
+                entries[0].url,
+            )
 
         _write_command_result(
             command,
@@ -259,6 +269,33 @@ class ServerMonPlugin:
             ],
         )
         _remove_command_file(command)
+
+    def _finalize_pending_deletions(self, reported_ids: set[str]) -> None:
+        """Complete deferred "delete device" removals for devices that were
+        reported this invocation (their post-action refresh is now answered).
+        """
+        if self.config_path is None:
+            return
+        for entry in list(self.config.urls):
+            did = device_id(entry.url)
+            if did not in reported_ids or not self.state.is_pending_deletion(did):
+                continue
+            try:
+                remove_url_entry(self.config_path, entry.url)
+            except ConfigError as error:
+                log.warning(
+                    "%s: could not remove %s from config: %s",
+                    DELETE_DEVICE,
+                    entry.url,
+                    error,
+                )
+                continue
+            self.state.forget(did)
+            self.config = replace(
+                self.config, urls=tuple(e for e in self.config.urls if e is not entry)
+            )
+            log.info("%s: finalized removal of %s", DELETE_DEVICE, entry.url)
+        self.state.save()
 
     def _replay_cached_report(self, entry: UrlEntry, command: Command) -> bool:
         """Re-submit the cached report for a URL within its check interval.
@@ -353,6 +390,8 @@ class ServerMonPlugin:
         """Check every entry and build its device report, updating (and
         persisting) the per-device last-error state.
         """
+        if not entries:
+            return []
         log.info("checking %d URL(s)", len(entries))
         rows = []
         for entry, result in self.run_checks(entries):

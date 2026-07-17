@@ -619,7 +619,10 @@ def write_two_url_config(tmp_path, http_server):
     return path
 
 
-def test_delete_device_command(http_server, dirs, tmp_path):
+def test_delete_device_command_is_deferred(http_server, dirs, tmp_path):
+    """The delete command reports Completed and marks the device pending, but
+    leaves it in the config so the post-action refresh still gets a report.
+    """
     pending, output = dirs
     config_path = write_two_url_config(tmp_path, http_server)
     state_file = tmp_path / "servermon-state.json"
@@ -646,12 +649,62 @@ def test_delete_device_command(http_server, dirs, tmp_path):
         next(iter(output.glob("777-0-*.json"))).read_text(encoding="utf-8")
     )
     assert result == [{"CommandID": "777-0", "DeviceID": target, "Result": "Completed"}]
-    remaining = load_config(config_path)
-    assert [e.url for e in remaining.urls] == [f"{http_server}/ok"]
-    assert "# keep me" in config_path.read_text(encoding="utf-8")
-    # Device history is gone from the state file too.
-    assert target not in json.loads(state_file.read_text(encoding="utf-8"))
+    # Still present in config (deferred), and flagged pending in state.
+    assert [e.url for e in load_config(config_path).urls] == [
+        f"{http_server}/ok",
+        f"{http_server}/other",
+    ]
+    assert json.loads(state_file.read_text(encoding="utf-8"))[target][
+        "pending deletion"
+    ] is True
     assert not command_file.is_file()
+
+
+def test_delete_device_finalized_by_post_action_refresh(http_server, dirs, tmp_path):
+    """The post-action refresh reports the device one last time (completing
+    the action) and then finalizes the removal from config and state.
+    """
+    pending, output = dirs
+    config_path = write_two_url_config(tmp_path, http_server)
+    state_file = tmp_path / "servermon-state.json"
+    target = device_id(f"{http_server}/other")
+
+    # Step 1: the delete command (defers).
+    plugin = ServerMonPlugin(
+        load_config(config_path), state_file=state_file, config_path=config_path
+    )
+    write_command(
+        pending,
+        {
+            "commandName": "delete device",
+            "outputDirectory": str(output),
+            "targetDevice": target,
+            "commandID": "780-0",
+        },
+    )
+    plugin.process_command_dir(pending)
+
+    # Step 2: the Proxy Agent's post-action refresh for that device.
+    plugin = ServerMonPlugin(
+        load_config(config_path), state_file=state_file, config_path=config_path
+    )
+    write_command(
+        pending,
+        {
+            "commandName": "refresh",
+            "outputDirectory": str(output),
+            "targetDevice": target,
+        },
+        name=f"Refresh-{target}.command",
+    )
+    plugin.process_command_dir(pending)
+
+    # A final report was written (so the action can complete)...
+    assert (output / f"{target}.report").is_file()
+    # ...and only now is the device gone from config and state.
+    assert [e.url for e in load_config(config_path).urls] == [f"{http_server}/ok"]
+    assert "# keep me" in config_path.read_text(encoding="utf-8")
+    assert target not in json.loads(state_file.read_text(encoding="utf-8"))
 
 
 def test_delete_device_last_entry_leaves_valid_config(http_server, dirs, tmp_path):
@@ -660,8 +713,12 @@ def test_delete_device_last_entry_leaves_valid_config(http_server, dirs, tmp_pat
     config_path.write_text(
         f'[[urls]]\nurl = "{http_server}/ok"\n', encoding="utf-8"
     )
+    state_file = tmp_path / "servermon-state.json"
     target = device_id(f"{http_server}/ok")
-    plugin = ServerMonPlugin(load_config(config_path), config_path=config_path)
+
+    plugin = ServerMonPlugin(
+        load_config(config_path), state_file=state_file, config_path=config_path
+    )
     write_command(
         pending,
         {
@@ -671,13 +728,21 @@ def test_delete_device_last_entry_leaves_valid_config(http_server, dirs, tmp_pat
             "commandID": "778-0",
         },
     )
+    plugin.process_command_dir(pending)
+    assert (
+        json.loads(
+            next(iter(output.glob("778-0-*.json"))).read_text(encoding="utf-8")
+        )[0]["Result"]
+        == "Completed"
+    )
 
+    # A heartbeat refresh finalizes the removal, leaving urls = [].
+    plugin = ServerMonPlugin(
+        load_config(config_path), state_file=state_file, config_path=config_path
+    )
+    write_command(pending, {"CommandName": "refresh", "OutputDirectory": str(output)})
     plugin.process_command_dir(pending)
 
-    result = json.loads(
-        next(iter(output.glob("778-0-*.json"))).read_text(encoding="utf-8")
-    )
-    assert result[0]["Result"] == "Completed"
     assert load_config(config_path).urls == ()
 
 
