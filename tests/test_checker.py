@@ -5,7 +5,7 @@ from datetime import datetime
 import pytest
 
 import servermon.checker
-from servermon.checker import (TIME_FORMAT, _build_ssl_context,
+from servermon.checker import (TIME_FORMAT, _build_ssl_context, _cert_expiry,
                                _load_ca_bundle, _ssl_context, check_url)
 from servermon.config import UrlEntry
 
@@ -25,6 +25,28 @@ def test_success(http_server):
     assert result.server == "servermon-test/1.0"
     assert result.peer_ip == "127.0.0.1"
     assert result.tls_version is None  # plain http test server
+    assert result.cert_expires is None  # no TLS -> no cert expiry
+
+
+class TestCertExpiry:
+    def test_parses_notafter_to_mime_time(self):
+        # getpeercert() format, GMT, space-padded day.
+        expiry = _cert_expiry({"notAfter": "Jun  4 11:04:38 2035 GMT"})
+        parsed = datetime.strptime(expiry, TIME_FORMAT)
+        assert (parsed.year, parsed.month, parsed.day) == (2035, 6, 4)
+        assert parsed.utcoffset().total_seconds() == 0  # normalized to UTC
+
+    def test_none_when_no_cert(self):
+        assert _cert_expiry(None) is None  # peer sent no certificate
+
+    def test_none_when_unverified(self):
+        assert _cert_expiry({}) is None  # verify_tls off -> empty dict
+
+    def test_none_when_no_notafter_key(self):
+        assert _cert_expiry({"subject": ()}) is None
+
+    def test_none_on_unparseable_value(self):
+        assert _cert_expiry({"notAfter": "not a date"}) is None
 
 
 def test_checked_at_is_bigfix_mime_time(http_server):

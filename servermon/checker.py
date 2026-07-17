@@ -14,7 +14,7 @@ import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from email.message import Message
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -53,6 +53,9 @@ class CheckResult:
     peer_ip: str | None = None  # IP of the remote server actually connected to
     tls_version: str | None = None  # e.g. "TLSv1.3"; None for plain http
     bad_string_found: bool | None = None  # None when no_match is not configured
+    # Server certificate expiry (notAfter) in TIME_FORMAT; None for plain
+    # http, verify_tls = false, or an unparsable/absent cert.
+    cert_expires: str | None = None
 
 
 def check_url(entry: UrlEntry, *, timeout: float, user_agent: str) -> CheckResult:
@@ -73,7 +76,7 @@ def check_url(entry: UrlEntry, *, timeout: float, user_agent: str) -> CheckResul
         with urllib.request.urlopen(
             request, timeout=timeout, context=context
         ) as response:
-            peer_ip, tls_version = _connection_info(response)
+            peer_ip, tls_version, cert_expires = _connection_info(response)
             body = response.read(MAX_BODY_BYTES)
             elapsed_ms = _elapsed_ms(started)
             return _from_response(
@@ -85,10 +88,11 @@ def check_url(entry: UrlEntry, *, timeout: float, user_agent: str) -> CheckResul
                 checked_at,
                 peer_ip=peer_ip,
                 tls_version=tls_version,
+                cert_expires=cert_expires,
             )
     except urllib.error.HTTPError as error:
         # 4xx/5xx raise, but they are still HTTP responses worth reporting.
-        peer_ip, tls_version = _connection_info(error)
+        peer_ip, tls_version, cert_expires = _connection_info(error)
         try:
             body = error.read(MAX_BODY_BYTES)
         except OSError:
@@ -103,6 +107,7 @@ def check_url(entry: UrlEntry, *, timeout: float, user_agent: str) -> CheckResul
             checked_at,
             peer_ip=peer_ip,
             tls_version=tls_version,
+            cert_expires=cert_expires,
         )
     except (
         urllib.error.URLError,
@@ -181,11 +186,14 @@ def _load_ca_bundle(context: ssl.SSLContext, cafile: str, label: str) -> None:
         log.warning("TLS trust: could not load %s (%s): %s", label, cafile, error)
 
 
-def _connection_info(response: Any) -> tuple[str | None, str | None]:
-    """Best-effort peer IP and TLS version from the response's live socket.
+def _connection_info(
+    response: Any,
+) -> tuple[str | None, str | None, str | None]:
+    """Best-effort (peer IP, TLS version, cert expiry) from the response's
+    live socket.
 
     Reaches through http.client internals (there is no public API for this),
-    so any surprise just degrades to (None, None).
+    so any surprise just degrades to (None, None, None).
     """
     try:
         fp = response.fp
@@ -193,10 +201,32 @@ def _connection_info(response: Any) -> tuple[str | None, str | None]:
             fp = fp.fp
         sock = fp.raw._sock
         peer = str(sock.getpeername()[0]).split("%")[0]  # drop IPv6 scope id
-        tls = sock.version() if isinstance(sock, ssl.SSLSocket) else None
-        return peer, tls
+        if isinstance(sock, ssl.SSLSocket):
+            return peer, sock.version(), _cert_expiry(sock.getpeercert())
+        return peer, None, None
     except Exception:
-        return None, None
+        return None, None, None
+
+
+def _cert_expiry(peercert: dict | None) -> str | None:
+    """Server certificate expiry (notAfter) as a TIME_FORMAT string.
+
+    getpeercert() returns the parsed dict only for a *validated* cert; it is
+    ``{}`` when verify_tls is off and ``None`` when the peer sent no cert, so
+    unverified and plain-http checks report no expiry.
+    """
+    if not peercert:
+        return None
+    not_after = peercert.get("notAfter")
+    if not not_after:
+        return None
+    try:
+        seconds = ssl.cert_time_to_seconds(not_after)
+        return email.utils.format_datetime(
+            datetime.fromtimestamp(seconds, tz=timezone.utc)
+        )
+    except (ValueError, OverflowError, OSError):
+        return None
 
 
 def _from_response(
@@ -208,6 +238,7 @@ def _from_response(
     checked_at: str,
     peer_ip: str | None = None,
     tls_version: str | None = None,
+    cert_expires: str | None = None,
 ) -> CheckResult:
     header_text, body_text = _response_texts(headers, body)
 
@@ -250,6 +281,7 @@ def _from_response(
         peer_ip=peer_ip,
         tls_version=tls_version,
         bad_string_found=bad_string_found,
+        cert_expires=cert_expires,
     )
 
 

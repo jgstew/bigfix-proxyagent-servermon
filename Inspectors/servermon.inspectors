@@ -11,5 +11,6 @@ response time ms: integer
 refresh interval: integer
 last check time: time
 tls version: string
+ssl certificate expires: time
 remote ip address: string
 servermon version: string

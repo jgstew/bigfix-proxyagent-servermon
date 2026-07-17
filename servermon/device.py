@@ -86,6 +86,8 @@ def build_report(
     # property via the built-in network inspectors.
     if result.tls_version is not None:
         report["tls version"] = result.tls_version
+    if result.cert_expires is not None:
+        report["ssl certificate expires"] = result.cert_expires
     if result.peer_ip is not None:
         report["remote ip address"] = result.peer_ip
         report["network"] = _network_structure(result.peer_ip)

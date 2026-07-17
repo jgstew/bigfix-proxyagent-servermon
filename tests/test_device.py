@@ -135,6 +135,17 @@ class TestBuildReport:
         assert "network" not in report
         assert "remote ip address" not in report
 
+    def test_ssl_certificate_expires_when_present(self):
+        expiry = "Wed, 04 Jun 2035 11:04:38 +0000"
+        report = build_report(
+            UrlEntry(url="https://example.com"), make_result(cert_expires=expiry)
+        )
+        assert report["ssl certificate expires"] == expiry
+
+    def test_no_ssl_certificate_expires_without_cert(self):
+        report = build_report(UrlEntry(url="https://example.com"), make_result())
+        assert "ssl certificate expires" not in report
+
     def test_no_last_error_keys_on_success(self):
         report = build_report(UrlEntry(url="https://example.com"), make_result())
         assert "http check last error" not in report

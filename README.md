@@ -113,6 +113,7 @@ Which bundles were loaded is logged at startup (`TLS trust: loaded ...`); a bund
 | `refresh interval` | integer | effective check cadence in minutes: the URL's `check_interval_minutes`, else the heartbeat from settings.json |
 | `last check time` | time | `Wed, 15 Jul 2026 14:00:00 -0400` |
 | `tls version` | string | `TLSv1.3` (absent for plain http / no connection) |
+| `ssl certificate expires` | time | server cert `notAfter`, e.g. `Sat, 29 Aug 2026 21:41:26 +0000` (absent for plain http or `verify_tls = false`) |
 | `remote ip address` | string | `172.66.147.243` (absent when nothing connected) |
 | `servermon version` | string | `0.1.0` |
 | `in proxy agent context` | boolean | `true` |
@@ -132,7 +133,7 @@ The proxy agent ships a `Version 3` inspector list that every plugin should fill
 
 CPU, BIOS, drive, RAM, and logged-on-user inspectors are deliberately left unfilled (a URL has none of those); the console shows their default values. The connected peer IP and TLS version are read from the live check socket, so they reflect the actual connection, not just a DNS lookup - both are absent when the server was unreachable.
 
-A ready-to-import analysis exposing all of these as properties is provided in [analysis-servermon.bes](analysis-servermon.bes). Its applicability relevance (`in proxy agent context` AND `exists servermon version`) keeps it relevant only on devices reported by this plugin.
+A ready-to-import analysis exposing all of these as properties is provided in [bigfix-content/analysis-servermon.bes](bigfix-content/analysis-servermon.bes). Its applicability relevance (`in proxy agent context` AND `exists servermon version`) keeps it relevant only on devices reported by this plugin. It also derives an **SSL Certificate Days Remaining** property from the expiry, handy for alerting on soon-to-expire certs.
 
 Example analysis properties targeting these devices:
 
