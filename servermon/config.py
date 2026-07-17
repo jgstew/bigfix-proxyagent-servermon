@@ -10,6 +10,7 @@ from typing import Any
 
 import tomllib
 
+from ._vendor import load_tomlkit
 from .device import device_name
 from .util import write_text_atomic
 
@@ -201,10 +202,80 @@ def set_url_check_interval(path: Path | str, url: str, minutes: int) -> None:
     """Set ``check_interval_minutes`` for one ``[[urls]]`` entry by editing
     the TOML file in place, preserving comments and formatting.
 
-    Used by the "set refresh interval" action command. Raises ConfigError if
-    the entry cannot be found or the edited file would not parse.
+    Used by the "set refresh interval" action command. Prefers the vendored
+    tomlkit; falls back to regex line editing when it is unavailable. Raises
+    ConfigError if the entry cannot be found or the edit would not parse.
     """
     path = Path(path)
+    tomlkit = load_tomlkit()
+    if tomlkit is not None:
+        _edit_with_tomlkit(
+            path, url, tomlkit, lambda table: table.__setitem__(
+                "check_interval_minutes", minutes
+            )
+        )
+    else:
+        _set_url_check_interval_regex(path, url, minutes)
+
+
+def remove_url_entry(path: Path | str, url: str) -> None:
+    """Remove one ``[[urls]]`` entry from the TOML file (in-place edit).
+
+    Used by the "delete device" action command. Prefers the vendored
+    tomlkit; falls back to regex line editing. If the last entry is removed,
+    ``urls = []`` is left behind so the file still loads.
+    """
+    path = Path(path)
+    tomlkit = load_tomlkit()
+    if tomlkit is not None:
+        _remove_with_tomlkit(path, url, tomlkit)
+    else:
+        _remove_url_entry_regex(path, url)
+
+
+def _edit_with_tomlkit(path: Path, url: str, tomlkit, mutate) -> None:
+    """Load the config with tomlkit, apply ``mutate`` to the matching url's
+    table, and write it back (comments/formatting preserved).
+    """
+    doc = _load_tomlkit_doc(path, tomlkit)
+    for table in doc.get("urls", []):
+        if table.get("url") == url:
+            mutate(table)
+            _write_validated_config_text(path, tomlkit.dumps(doc))
+            return
+    raise ConfigError(f"{path}: no [[urls]] entry with url = {url!r} found")
+
+
+def _remove_with_tomlkit(path: Path, url: str, tomlkit) -> None:
+    doc = _load_tomlkit_doc(path, tomlkit)
+    urls = doc.get("urls")
+    if urls is not None:
+        for i, table in enumerate(urls):
+            if table.get("url") == url:
+                del urls[i]
+                # tomlkit drops the key entirely once the array is empty;
+                # leave "urls = []" so the config still parses (parse_config
+                # requires the key to be present).
+                if len(doc.get("urls", [])) == 0:
+                    doc["urls"] = []
+                _write_validated_config_text(path, tomlkit.dumps(doc))
+                return
+    raise ConfigError(f"{path}: no [[urls]] entry with url = {url!r} found")
+
+
+def _load_tomlkit_doc(path: Path, tomlkit):
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError as error:
+        raise ConfigError(f"cannot read {path}: {error}") from error
+    try:
+        return tomlkit.parse(text)
+    except Exception as error:
+        raise ConfigError(f"invalid TOML in {path}: {error}") from error
+
+
+def _set_url_check_interval_regex(path: Path, url: str, minutes: int) -> None:
+    """Tomlkit-free fallback for :func:`set_url_check_interval`."""
     lines = _read_config_lines(path)
     url_index = _find_url_line(lines, url, path)
 
@@ -229,13 +300,8 @@ def set_url_check_interval(path: Path | str, url: str, minutes: int) -> None:
     _write_validated_config(path, lines)
 
 
-def remove_url_entry(path: Path | str, url: str) -> None:
-    """Remove one ``[[urls]]`` entry from the TOML file (in-place edit).
-
-    Used by the "delete device" action command. If the last entry is
-    removed, ``urls = []`` is inserted so the file still loads.
-    """
-    path = Path(path)
+def _remove_url_entry_regex(path: Path, url: str) -> None:
+    """Tomlkit-free fallback for :func:`remove_url_entry`."""
     lines = _read_config_lines(path)
     url_index = _find_url_line(lines, url, path)
 
@@ -278,8 +344,12 @@ def _find_url_line(lines: list[str], url: str, path: Path) -> int:
 
 
 def _write_validated_config(path: Path, lines: list[str]) -> None:
-    new_text = "\n".join(lines) + "\n"
-    # Refuse to write a config that would not load back.
+    _write_validated_config_text(path, "\n".join(lines) + "\n")
+
+
+def _write_validated_config_text(path: Path, new_text: str) -> None:
+    # Refuse to write a config that would not load back (stdlib tomllib is
+    # the source of truth for what the plugin will actually parse).
     try:
         parse_config(tomllib.loads(new_text), source=str(path))
     except tomllib.TOMLDecodeError as error:

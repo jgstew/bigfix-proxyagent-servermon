@@ -1,5 +1,6 @@
 import pytest
 
+import servermon.config
 from servermon.config import (DEFAULT_TIMEOUT_SECONDS, DEFAULT_USER_AGENT,
                               ConfigError, load_config, remove_url_entry,
                               set_url_check_interval)
@@ -9,6 +10,18 @@ def write_config(tmp_path, text):
     path = tmp_path / "servermon.toml"
     path.write_text(text, encoding="utf-8")
     return path
+
+
+# The write functions have two backends: vendored tomlkit (preferred) and
+# regex line editing (fallback). Run every write test against both so neither
+# path can rot. "tomlkit" is skipped if the vendored wheel is unavailable.
+@pytest.fixture(params=["tomlkit", "fallback"])
+def write_backend(request, monkeypatch):
+    if request.param == "fallback":
+        monkeypatch.setattr(servermon.config, "load_tomlkit", lambda: None)
+    elif servermon.config.load_tomlkit() is None:
+        pytest.skip("tomlkit not available")
+    return request.param
 
 
 def test_minimal_config(tmp_path):
@@ -144,7 +157,7 @@ check_interval_minutes = 15
 """
 
 
-def test_set_url_check_interval_inserts(tmp_path):
+def test_set_url_check_interval_inserts(tmp_path, write_backend):
     path = write_config(tmp_path, SET_INTERVAL_CONFIG)
     set_url_check_interval(path, "https://one.example.com", 60)
 
@@ -152,11 +165,11 @@ def test_set_url_check_interval_inserts(tmp_path):
     assert config.urls[0].check_interval_minutes == 60
     assert config.urls[1].check_interval_minutes == 15  # untouched
     text = path.read_text(encoding="utf-8")
-    assert "# global comment" in text  # comments preserved
+    assert "# global comment" in text  # comments preserved by both backends
     assert "# entry comment" in text
 
 
-def test_set_url_check_interval_replaces(tmp_path):
+def test_set_url_check_interval_replaces(tmp_path, write_backend):
     path = write_config(tmp_path, SET_INTERVAL_CONFIG)
     set_url_check_interval(path, "https://two.example.com", 240)
 
@@ -165,7 +178,7 @@ def test_set_url_check_interval_replaces(tmp_path):
     assert path.read_text(encoding="utf-8").count("check_interval_minutes") == 1
 
 
-def test_set_url_check_interval_unknown_url(tmp_path):
+def test_set_url_check_interval_unknown_url(tmp_path, write_backend):
     path = write_config(tmp_path, SET_INTERVAL_CONFIG)
     with pytest.raises(ConfigError, match="no \\[\\[urls\\]\\] entry"):
         set_url_check_interval(path, "https://nope.example.com", 60)
@@ -189,7 +202,7 @@ def test_empty_urls_list_is_allowed(tmp_path):
     assert config.urls == ()
 
 
-def test_remove_url_entry(tmp_path):
+def test_remove_url_entry(tmp_path, write_backend):
     path = write_config(tmp_path, SET_INTERVAL_CONFIG)
     remove_url_entry(path, "https://one.example.com")
 
@@ -200,7 +213,7 @@ def test_remove_url_entry(tmp_path):
     assert "one.example.com" not in text
 
 
-def test_remove_last_url_entry_inserts_empty_list(tmp_path):
+def test_remove_last_url_entry_inserts_empty_list(tmp_path, write_backend):
     path = write_config(
         tmp_path,
         """
@@ -215,10 +228,20 @@ def test_remove_last_url_entry_inserts_empty_list(tmp_path):
     assert "urls = []" in path.read_text(encoding="utf-8")
 
 
-def test_remove_url_entry_unknown_url(tmp_path):
+def test_remove_url_entry_unknown_url(tmp_path, write_backend):
     path = write_config(tmp_path, SET_INTERVAL_CONFIG)
     with pytest.raises(ConfigError, match="no \\[\\[urls\\]\\] entry"):
         remove_url_entry(path, "https://nope.example.com")
+
+
+def test_vendored_tomlkit_is_loadable():
+    # The vendored wheel must import (via zipimport) even with no pip-installed
+    # tomlkit; this is the deployment path on the Proxy Agent host.
+    from servermon._vendor import load_tomlkit, vendored_wheel_name
+
+    assert vendored_wheel_name() is not None
+    assert vendored_wheel_name().endswith(".whl")
+    assert load_tomlkit() is not None  # installed or vendored, either is fine
 
 
 def test_missing_file(tmp_path):
