@@ -117,7 +117,11 @@ def main(argv: list[str] | None = None) -> int:
         print(f'"{config_path}" is valid: {len(config.urls)} URL(s) configured.')
         return 0
 
-    plugin = ServerMonPlugin(config, state_file=Path(args.state_file).resolve())
+    plugin = ServerMonPlugin(
+        config,
+        state_file=Path(args.state_file).resolve(),
+        config_path=config_path,
+    )
 
     if args.check:
         return _run_check(plugin, as_json=args.json)

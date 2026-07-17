@@ -33,3 +33,8 @@ url = "https://localhost:44444/fake.html"
 # match = "\"status\": \"ok\""
 # timeout_seconds = 10
 # verify_tls = false   # for self-signed certs on internal servers
+# # Only check this URL every N minutes (default: every Proxy Agent
+# # refresh). Effectively rounds up to a multiple of the heartbeat
+# # (DeviceReportRefreshIntervalMinutes in settings.json). Can also be set
+# # from BigFix via the "set refresh interval <minutes>" action command.
+# check_interval_minutes = 240

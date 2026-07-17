@@ -13,7 +13,7 @@ from . import __version__
 if TYPE_CHECKING:
     from .checker import CheckResult
     from .config import UrlEntry
-    from .state import LastError
+    from .state import DeviceRecord
 
 DATA_SOURCE = "servermon"
 
@@ -39,7 +39,7 @@ def build_report(
     entry: UrlEntry,
     result: CheckResult,
     sequence: int | None = None,
-    last_error: LastError | None = None,
+    device_state: DeviceRecord | None = None,
 ) -> dict[str, Any]:
     """Build the device report written to ``<device id>.report``.
 
@@ -74,6 +74,11 @@ def build_report(
         "check success": result.success,
         "response time ms": result.response_time_ms,
         "last check time": result.checked_at,
+        # The Proxy Agent only treats a report as new if the "effective
+        # device communication" time advances, and it feeds the console's
+        # Last Report Time; reporting the check time guarantees both track
+        # the checks regardless of file modification times.
+        "last server communication": result.checked_at,
     }
     # TLS protocol version of the connection, and the remote IP actually
     # connected to. The IP also feeds the reserved "IP Address" console
@@ -91,13 +96,22 @@ def build_report(
     # the server was reachable but served the known-bad content.
     if entry.no_match is not None:
         report["bad string found"] = bool(result.bad_string_found)
-    # The most recent error this device has ever had (tracked in the plugin's
-    # state file, see state.py). Device reports fully replace prior data in
-    # BigFix, so this must be re-sent every report to stay visible after a
-    # transient error clears. Absent only if the device has never failed.
-    if last_error is not None:
-        report["http check last error"] = last_error.detail
-        report["http check last error time"] = last_error.time
+    # Per-device history tracked in the plugin's state file (see state.py).
+    # Device reports fully replace prior data in BigFix, so these must be
+    # re-sent with every report to stay visible.
+    if device_state is not None:
+        # The most recent error this device has ever had; absent only if
+        # the device has never failed.
+        if device_state.last_error is not None:
+            report["http check last error"] = device_state.last_error.detail
+            report["http check last error time"] = device_state.last_error.time
+        # Last time the URL actually answered with an HTTP response. When
+        # present, the Proxy Agent uses it to generate the console's Last
+        # Report Time, so a URL that stops responding shows a visibly stale
+        # Last Report Time while "last server communication" (the check
+        # time) keeps the reports themselves fresh.
+        if device_state.last_contact is not None:
+            report["last device report time"] = device_state.last_contact
     # Echo the report sequence number from the refresh command back to the
     # Proxy Agent. The expected key spelling is not publicly documented, so
     # both styles are included; the extra key is harmless either way.

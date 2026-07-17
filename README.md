@@ -3,7 +3,7 @@
 A BigFix Management Extender (Proxy Agent) plugin that monitors web servers / URLs. Each monitored URL shows up in BigFix as its own proxied device:
 
 - The **device name** is the URL with the scheme removed (`https://example.com` -> `example.com`).
-- The **last report time** is the last time the URL was checked.
+- The **last report time** is the last time the URL actually responded, so a dead URL shows a visibly stale Last Report Time while its properties keep updating.
 - The **operating system** column shows the web server's `Server` header when available (e.g. `nginx/1.25.3`).
 - Virtual inspectors expose the **HTTP response code**, a **detailed check result string**, and more to analyses.
 
@@ -80,6 +80,8 @@ The check frequency is controlled by the Proxy Agent, not the plugin:
 
 Default is 60 (hourly). Lower it for more frequent checks; restart `BESProxyAgent` after changing it.
 
+Individual URLs can opt into a **longer** interval with `check_interval_minutes` in their `[[urls]]` entry: the plugin then skips that URL during Proxy Agent refreshes until the interval has elapsed (tracked in the state file, with 10% slack for heartbeat jitter). Since the plugin only runs when the Proxy Agent invokes it, a per-URL interval effectively rounds up to a multiple of the heartbeat - set `DeviceReportRefreshIntervalMinutes` to the smallest interval you need and per-URL intervals to larger values. Action-driven refreshes (a "check now" action) always check regardless.
+
 ### TLS trust store
 
 For `https://` URLs (with `verify_tls` on, the default), the trusted CAs are the **combination** of:
@@ -99,13 +101,13 @@ Which bundles were loaded is logged at startup (`TLS trust: loaded ...`); a bund
 | `http response code` | integer | `200` (`0` = no HTTP response received) |
 | `http check result` | string | `OK: HTTP 200 OK (231 ms); matched 'Example Domain' in body` |
 | `http check last error` | string | detail string of the most recent *failed* check |
-| `http check last error time` | string | when that error occurred (castable `as time`) |
+| `http check last error time` | time | when that error occurred |
 | `check success` | boolean | `true` |
 | `match found` | boolean | only present when `match` is configured |
 | `bad string found` | boolean | only present when `no_match` is configured; `true` = reachable but serving known-bad content |
 | `url` | string | `https://example.com` |
 | `response time ms` | integer | `231` |
-| `last check time` | string | `Wed, 15 Jul 2026 14:00:00 -0400` (castable `as time`) |
+| `last check time` | time | `Wed, 15 Jul 2026 14:00:00 -0400` |
 | `tls version` | string | `TLSv1.3` (absent for plain http / no connection) |
 | `remote ip address` | string | `172.66.147.243` (absent when nothing connected) |
 | `servermon version` | string | `0.1.0` |
@@ -133,12 +135,28 @@ Example analysis properties targeting these devices:
 ```
 Q: http response code
 Q: http check result
-Q: (it as time) of last check time
+Q: last check time
 ```
+
+Three timestamps with distinct meanings are reported:
+
+- `last check time` - when the plugin last checked the URL (every check, reachable or not).
+- `last server communication` - also the check time; the Proxy Agent uses it as the "effective device communication time" that decides whether a report is new, so reports stay fresh every cycle regardless of file timestamps.
+- `last device report time` - the last time the URL actually answered with an HTTP response (any status code; declared in the agent's own `main.inspectors`). When present, the Proxy Agent uses it to generate the console's **Last Report Time** - so a URL that stops responding shows a stale Last Report Time and eventually greys out like a dead client, while its other properties keep updating. Until a URL has responded at least once, the key is absent and Last Report Time falls back to the report time.
 
 The `http check result` string always starts with `OK:`, `FAILED:` (an HTTP response was received but the status or match check failed), or `ERROR:` (no HTTP response - DNS, TCP, TLS, or timeout failure, with the reason).
 
 `http check last error` and `http check last error time` capture the most recent failed check even after it clears. Because a device report fully replaces the device's previous data in BigFix, the plugin remembers each device's last error in a small state file (`servermon-state.json` in the repo root by default, `--state-file` to relocate) and re-sends it with every report until a newer error replaces it. The keys are absent only for a device that has never failed.
+
+## On-demand checks ("check now")
+
+Three ways to trigger an immediate check of a device instead of waiting for the next heartbeat:
+
+1. **Right-click the device in the console and Send Refresh.** The `ConsoleSendRefresh` notification makes the Proxy Agent issue a targeted refresh command to the plugin, which checks that URL immediately.
+2. **Target the device with any action** (by ID or computer name) - the Proxy Agent automatically sends a refresh request to targeted devices when an action is detected, and another when it completes.
+3. **An actionscript `refresh` command.** If the Proxy Agent delivers a refresh carrying a `commandID` (an actionscript-driven refresh), the plugin runs the check and answers with a command result of `Completed` (check passed) or `Failed` (check failed) - so the action status directly reflects the URL's health. Caveat: the Proxy Agent only runs actionscript commands listed in `ProxyPluginCommands.json` (BES Support), where `refresh` appears under other plugins' names and `servermon` has no entry - whether it delivers the command to this plugin depends on how that whitelist is scoped, so verify on a test deployment before relying on it.
+
+The plugin also supports the actionscript command **`set refresh interval <minutes>`** (also in the `ProxyPluginCommands.json` whitelist, same caveat): targeted at a URL device, it writes `check_interval_minutes = <minutes>` into that URL's `[[urls]]` entry in servermon.toml (comments and formatting preserved, and the edit is refused if the result would not parse). The action reports `Completed` on success, `Error` for a bad argument or unknown device. The new interval takes effect from the next plugin invocation.
 
 ## Test without a Proxy Agent
 
@@ -162,7 +180,11 @@ python plugin/servermon.py --config servermon.toml --commandDir /tmp/pending
 cat /tmp/reports/*.report
 ```
 
-Troubleshooting: every run writes a rotating log (1 MiB * 3 backups) to `Logs\servermon.log` under the plugin folder by default, creating the directory if needed. Use `--log-file <path>` in the `ExecutablePath` to log somewhere else, and `--log-level DEBUG` for more detail. If the log file cannot be written (e.g. permissions), the plugin logs to stderr and keeps running.
+## Troubleshooting
+
+- Every run writes a rotating log (1 MiB * 3 backups) to `Logs\servermon.log` under the plugin folder by default, creating the directory if needed. Use `--log-file <path>` in the `ExecutablePath` to log somewhere else, and `--log-level DEBUG` for more detail. If the log file cannot be written (e.g. permissions), the plugin logs to stderr and keeps running.
+- The Proxy Agent's own log is in `Management Extender\__Logs`. Additional log streams (`debug`, `evaluation`, `timing`) can be enabled via the registry: `HKLM\Software\BigFix\ProxyAgent` -> `EnabledLogs` (semicolon-delimited; default `critical;events`).
+- To watch the plugin protocol itself, the Proxy Agent supports **carbon copy** client settings on the extender machine: `_ProxyAgent_Command_CarbonCopyPath` (copies every `.command` file before the plugin consumes it), `_ProxyAgent_CommandResults_CarbonCopyPath` (keeps the result JSONs), and `_ProxyAgent_Reporting_CarbonCopyPath` (keeps the client reports posted to the relay).
 
 ## Develop
 

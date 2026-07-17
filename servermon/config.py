@@ -10,11 +10,19 @@ from typing import Any
 import tomllib
 
 from .device import device_name
+from .util import write_text_atomic
 
 DEFAULT_TIMEOUT_SECONDS = 30.0
 DEFAULT_USER_AGENT = "bigfix-proxyagent-servermon"
 
-_URL_ENTRY_KEYS = {"url", "match", "no_match", "verify_tls", "timeout_seconds"}
+_URL_ENTRY_KEYS = {
+    "url",
+    "match",
+    "no_match",
+    "verify_tls",
+    "timeout_seconds",
+    "check_interval_minutes",
+}
 
 
 class ConfigError(ValueError):
@@ -30,6 +38,11 @@ class UrlEntry:
     no_match: str | None = None  # case-insensitive regex that must NOT match
     verify_tls: bool = True
     timeout_seconds: float | None = None  # None -> use the global setting
+    # Minimum minutes between checks of this URL; None -> check on every
+    # Proxy Agent refresh. Effectively rounds up to a multiple of the
+    # heartbeat (DeviceReportRefreshIntervalMinutes in settings.json), since
+    # the plugin only runs when the Proxy Agent invokes it.
+    check_interval_minutes: int | None = None
 
 
 @dataclass(frozen=True)
@@ -124,13 +137,74 @@ def _parse_url_entry(item: Any, where: str) -> UrlEntry:
     if timeout is not None and not _is_positive_number(timeout):
         raise ConfigError(f"{where}: 'timeout_seconds' must be a positive number")
 
+    interval = item.get("check_interval_minutes")
+    if interval is not None and (
+        not isinstance(interval, int) or isinstance(interval, bool) or interval < 1
+    ):
+        raise ConfigError(
+            f"{where}: 'check_interval_minutes' must be a positive integer"
+        )
+
     return UrlEntry(
         url=url,
         match=match,
         no_match=no_match,
         verify_tls=verify_tls,
         timeout_seconds=None if timeout is None else float(timeout),
+        check_interval_minutes=interval,
     )
+
+
+def set_url_check_interval(path: Path | str, url: str, minutes: int) -> None:
+    """Set ``check_interval_minutes`` for one ``[[urls]]`` entry by editing
+    the TOML file in place, preserving comments and formatting.
+
+    Used by the "set refresh interval" action command. Raises ConfigError if
+    the entry cannot be found or the edited file would not parse.
+    """
+    path = Path(path)
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError as error:
+        raise ConfigError(f"cannot read {path}: {error}") from error
+
+    lines = text.splitlines()
+    url_line_re = re.compile(r"^\s*url\s*=\s*([\"'])(?P<url>.*)\1\s*(#.*)?$")
+    interval_line_re = re.compile(r"^\s*check_interval_minutes\s*=")
+    table_header_re = re.compile(r"^\s*\[")
+
+    url_index = next(
+        (
+            i
+            for i, line in enumerate(lines)
+            if (m := url_line_re.match(line)) and m.group("url") == url
+        ),
+        None,
+    )
+    if url_index is None:
+        raise ConfigError(f"{path}: no [[urls]] entry with url = {url!r} found")
+
+    # This entry's table ends at the next table header (or EOF).
+    end = next(
+        (i for i in range(url_index + 1, len(lines)) if table_header_re.match(lines[i])),
+        len(lines),
+    )
+
+    new_line = f"check_interval_minutes = {minutes}"
+    for i in range(url_index + 1, end):
+        if interval_line_re.match(lines[i]):
+            lines[i] = new_line
+            break
+    else:
+        lines.insert(url_index + 1, new_line)
+
+    new_text = "\n".join(lines) + "\n"
+    # Refuse to write a config that would not load back.
+    try:
+        parse_config(tomllib.loads(new_text), source=str(path))
+    except tomllib.TOMLDecodeError as error:
+        raise ConfigError(f"edit would corrupt {path}: {error}") from error
+    write_text_atomic(path, new_text)
 
 
 def _parse_regex_option(item: dict[str, Any], key: str, where: str) -> str | None:

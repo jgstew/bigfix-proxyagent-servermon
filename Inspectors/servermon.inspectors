@@ -3,12 +3,12 @@ url: string
 http response code: integer
 http check result: string
 http check last error: string
-http check last error time: string
+http check last error time: time
 check success: boolean
 match found: boolean
 bad string found: boolean
 response time ms: integer
-last check time: string
+last check time: time
 tls version: string
 remote ip address: string
 servermon version: string

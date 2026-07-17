@@ -169,7 +169,11 @@ def test_unsupported_command_reports_error(http_server, dirs):
 
     plugin.process_command_dir(pending)
 
-    result = json.loads((output / "314159.json").read_text(encoding="utf-8"))
+    # Result files are named <commandID>-<PID>-<seq>.json per the plugin
+    # interface spec, so concurrent plugin instances cannot collide.
+    result_files = list(output.glob("314159-*.json"))
+    assert len(result_files) == 1
+    result = json.loads(result_files[0].read_text(encoding="utf-8"))
     assert result == [{"CommandID": "314159", "DeviceID": target, "Result": "Error"}]
     # Non-refresh command files are consumed by the plugin (like trask).
     assert not command_file.is_file()
@@ -201,6 +205,311 @@ def test_last_error_persists_across_runs(http_server, dirs, tmp_path):
     assert second["check success"] is True
     assert second["http check last error"] == first["http check last error"]
     assert second["http check last error time"] == first["http check last error time"]
+    # Both runs got HTTP responses (500 then 200), so the contact time
+    # advances to the latest check.
+    assert second["last device report time"] == second["last check time"]
+
+
+def test_partial_refresh_falls_back_to_target_hint(http_server, dirs):
+    """If the device id does not match, the target hint (the URL, per
+    TargetHintRelevance in settings.json) still finds the entry.
+    """
+    pending, output = dirs
+    plugin = make_plugin(http_server)
+    write_command(
+        pending,
+        {
+            "CommandName": "refresh",
+            "OutputDirectory": str(output),
+            "TargetDevice": "some-legacy-or-foreign-id",
+            "TargetHint": f"{http_server}/ok",
+        },
+        name="Refresh-hint.command",
+    )
+
+    plugin.process_command_dir(pending)
+
+    reports = list(output.glob("*.report"))
+    assert len(reports) == 1
+    assert reports[0].name == f"{device_id(f'{http_server}/ok')}.report"
+
+
+def test_non_command_files_ignored(http_server, dirs):
+    pending, output = dirs
+    plugin = make_plugin(http_server)
+    stray = pending / "Thumbs.db"
+    stray.write_text("not a command", encoding="utf-8")
+
+    plugin.process_command_dir(pending)  # must not raise
+
+    assert stray.is_file()  # not consumed
+    assert list(output.glob("*.report")) == []
+
+
+def test_report_contains_last_server_communication(http_server, dirs):
+    pending, output = dirs
+    plugin = make_plugin(http_server)
+    write_command(pending, {"CommandName": "refresh", "OutputDirectory": str(output)})
+
+    plugin.process_command_dir(pending)
+
+    report = read_report(output, f"{http_server}/ok")
+    assert report["last server communication"] == report["last check time"]
+    # The URL answered, so the contact time (-> console Last Report Time)
+    # is this check's time.
+    assert report["last device report time"] == report["last check time"]
+
+
+def test_action_refresh_writes_command_result(http_server, dirs):
+    """A refresh carrying a commandID is an actionscript-driven "check now":
+    it expects a command result (Completed/Failed per the check outcome).
+
+    instead of device reports.
+    """
+    pending, output = dirs
+    plugin = make_plugin(http_server)
+    target = device_id(f"{http_server}/does-not-exist")
+    command_file = write_command(
+        pending,
+        {
+            "commandName": "refresh",
+            "outputDirectory": str(output),
+            "targetDevice": target,
+            "commandID": "271828-0",
+        },
+        name="271828-0.command",
+    )
+
+    plugin.process_command_dir(pending)
+
+    # No device reports: the outputDirectory is the action-results dir.
+    assert list(output.glob("*.report")) == []
+    result_files = list(output.glob("271828-0-*.json"))
+    assert len(result_files) == 1
+    result = json.loads(result_files[0].read_text(encoding="utf-8"))
+    assert result == [
+        {"CommandID": "271828-0", "DeviceID": target, "Result": "Failed"}
+    ]
+    assert not command_file.is_file()
+
+
+def test_action_refresh_success_reports_completed(http_server, dirs):
+    pending, output = dirs
+    plugin = make_plugin(http_server)
+    target = device_id(f"{http_server}/ok")
+    write_command(
+        pending,
+        {
+            "commandName": "refresh",
+            "outputDirectory": str(output),
+            "targetDevice": target,
+            "commandID": "271829-0",
+        },
+    )
+
+    plugin.process_command_dir(pending)
+
+    result = json.loads(
+        next(iter(output.glob("271829-0-*.json"))).read_text(encoding="utf-8")
+    )
+    assert result[0]["Result"] == "Completed"
+
+
+def test_check_interval_skips_recently_checked_url(http_server, dirs, tmp_path):
+    pending, output = dirs
+    state_file = tmp_path / "servermon-state.json"
+    config = Config(
+        urls=(UrlEntry(url=f"{http_server}/ok", check_interval_minutes=60),),
+        timeout_seconds=5,
+    )
+
+    # First heartbeat refresh: never checked -> checked and reported.
+    plugin = ServerMonPlugin(config, state_file=state_file)
+    write_command(pending, {"CommandName": "refresh", "OutputDirectory": str(output)})
+    plugin.process_command_dir(pending)
+    report_path = output / f"{device_id(f'{http_server}/ok')}.report"
+    assert report_path.is_file()
+
+    # Immediate second heartbeat: within the interval -> skipped entirely.
+    report_path.unlink()
+    plugin = ServerMonPlugin(config, state_file=state_file)
+    command_file = write_command(
+        pending, {"CommandName": "refresh", "OutputDirectory": str(output)}
+    )
+    plugin.process_command_dir(pending)
+    assert not report_path.is_file()
+    assert not command_file.is_file()  # still acknowledged
+
+
+def test_check_interval_elapsed_checks_again(http_server, dirs, tmp_path):
+    pending, output = dirs
+    state_file = tmp_path / "servermon-state.json"
+    state_file.write_text(
+        json.dumps(
+            {
+                device_id(f"{http_server}/ok"): {
+                    "last check": "Mon, 13 Jul 2026 07:00:00 -0400"
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    config = Config(
+        urls=(UrlEntry(url=f"{http_server}/ok", check_interval_minutes=60),),
+        timeout_seconds=5,
+    )
+    plugin = ServerMonPlugin(config, state_file=state_file)
+    write_command(pending, {"CommandName": "refresh", "OutputDirectory": str(output)})
+
+    plugin.process_command_dir(pending)
+
+    assert (output / f"{device_id(f'{http_server}/ok')}.report").is_file()
+
+
+def test_action_refresh_ignores_check_interval(http_server, dirs, tmp_path):
+    pending, output = dirs
+    state_file = tmp_path / "servermon-state.json"
+    config = Config(
+        urls=(UrlEntry(url=f"{http_server}/ok", check_interval_minutes=60),),
+        timeout_seconds=5,
+    )
+    target = device_id(f"{http_server}/ok")
+
+    plugin = ServerMonPlugin(config, state_file=state_file)
+    write_command(pending, {"CommandName": "refresh", "OutputDirectory": str(output)})
+    plugin.process_command_dir(pending)  # records a fresh "last check"
+
+    plugin = ServerMonPlugin(config, state_file=state_file)
+    write_command(
+        pending,
+        {
+            "commandName": "refresh",
+            "outputDirectory": str(output),
+            "targetDevice": target,
+            "commandID": "999-0",
+        },
+    )
+    plugin.process_command_dir(pending)
+
+    result = json.loads(
+        next(iter(output.glob("999-0-*.json"))).read_text(encoding="utf-8")
+    )
+    assert result[0]["Result"] == "Completed"
+
+
+def write_toml_config(tmp_path, http_server):
+    path = tmp_path / "servermon.toml"
+    path.write_text(
+        f"""
+        [[urls]]
+        url = "{http_server}/ok"
+        """,
+        encoding="utf-8",
+    )
+    return path
+
+
+def test_set_refresh_interval_command(http_server, dirs, tmp_path):
+    from servermon.config import load_config
+
+    pending, output = dirs
+    config_path = write_toml_config(tmp_path, http_server)
+    config = load_config(config_path)
+    plugin = ServerMonPlugin(config, config_path=config_path)
+    target = device_id(f"{http_server}/ok")
+    command_file = write_command(
+        pending,
+        {
+            "commandName": "set refresh interval",
+            "commandArguments": "120",
+            "outputDirectory": str(output),
+            "targetDevice": target,
+            "commandID": "555-0",
+        },
+    )
+
+    plugin.process_command_dir(pending)
+
+    result = json.loads(
+        next(iter(output.glob("555-0-*.json"))).read_text(encoding="utf-8")
+    )
+    assert result == [{"CommandID": "555-0", "DeviceID": target, "Result": "Completed"}]
+    assert load_config(config_path).urls[0].check_interval_minutes == 120
+    assert not command_file.is_file()
+
+
+def test_set_refresh_interval_invalid_arguments(http_server, dirs, tmp_path):
+    from servermon.config import load_config
+
+    pending, output = dirs
+    config_path = write_toml_config(tmp_path, http_server)
+    plugin = ServerMonPlugin(load_config(config_path), config_path=config_path)
+    target = device_id(f"{http_server}/ok")
+    write_command(
+        pending,
+        {
+            "commandName": "set refresh interval",
+            "commandArguments": "banana",
+            "outputDirectory": str(output),
+            "targetDevice": target,
+            "commandID": "556-0",
+        },
+    )
+
+    plugin.process_command_dir(pending)
+
+    result = json.loads(
+        next(iter(output.glob("556-0-*.json"))).read_text(encoding="utf-8")
+    )
+    assert result[0]["Result"] == "Error"
+    assert load_config(config_path).urls[0].check_interval_minutes is None
+
+
+def test_set_refresh_interval_without_config_path(http_server, dirs):
+    pending, output = dirs
+    plugin = make_plugin(http_server)  # no config_path
+    target = device_id(f"{http_server}/ok")
+    write_command(
+        pending,
+        {
+            "commandName": "set refresh interval",
+            "commandArguments": "30",
+            "outputDirectory": str(output),
+            "targetDevice": target,
+            "commandID": "557-0",
+        },
+    )
+
+    plugin.process_command_dir(pending)
+
+    result = json.loads(
+        next(iter(output.glob("557-0-*.json"))).read_text(encoding="utf-8")
+    )
+    assert result[0]["Result"] == "Error"
+
+
+def test_unreachable_url_keeps_stale_contact_time(closed_port_url, dirs, tmp_path):
+    """A URL that stops responding keeps its old last-contact time, so the
+    console's Last Report Time goes visibly stale.
+    """
+    pending, output = dirs
+    state_file = tmp_path / "servermon-state.json"
+    old_contact = "Mon, 13 Jul 2026 07:00:00 -0400"
+    state_file.write_text(
+        json.dumps({device_id(closed_port_url): {"last contact": old_contact}}),
+        encoding="utf-8",
+    )
+    config = Config(urls=(UrlEntry(url=closed_port_url),), timeout_seconds=5)
+    plugin = ServerMonPlugin(config, state_file=state_file)
+    write_command(pending, {"CommandName": "refresh", "OutputDirectory": str(output)})
+
+    plugin.process_command_dir(pending)
+
+    report = read_report(output, closed_port_url)
+    assert report["http response code"] == 0
+    assert report["last device report time"] == old_contact
+    # The report itself is still fresh: the check happened now.
+    assert report["last server communication"] == report["last check time"]
 
 
 def test_invalid_command_file_is_skipped(http_server, dirs):

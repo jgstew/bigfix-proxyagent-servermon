@@ -71,6 +71,13 @@ class Command:
         return str(self.get("targetdevice"))
 
     @property
+    def target_hint(self) -> str:
+        """Result of evaluating settings.json's TargetHintRelevance ("url")
+        against the targeted device; provided by the Proxy Agent.
+        """
+        return str(self.get("targethint"))
+
+    @property
     def command_id(self) -> str:
         return str(self.get("commandid"))
 

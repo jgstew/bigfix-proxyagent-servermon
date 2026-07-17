@@ -1,7 +1,7 @@
 import pytest
 
 from servermon.config import (DEFAULT_TIMEOUT_SECONDS, DEFAULT_USER_AGENT,
-                              ConfigError, load_config)
+                              ConfigError, load_config, set_url_check_interval)
 
 
 def write_config(tmp_path, text):
@@ -98,6 +98,76 @@ def test_no_match_invalid_regex_rejected(tmp_path):
                 """,
             )
         )
+
+
+def test_check_interval_option(tmp_path):
+    config = load_config(
+        write_config(
+            tmp_path,
+            """
+            [[urls]]
+            url = "https://example.com"
+            check_interval_minutes = 120
+            """,
+        )
+    )
+    assert config.urls[0].check_interval_minutes == 120
+
+
+def test_check_interval_must_be_positive_integer(tmp_path):
+    with pytest.raises(ConfigError, match="check_interval_minutes"):
+        load_config(
+            write_config(
+                tmp_path,
+                """
+                [[urls]]
+                url = "https://example.com"
+                check_interval_minutes = -5
+                """,
+            )
+        )
+
+
+SET_INTERVAL_CONFIG = """\
+# global comment
+[settings]
+timeout_seconds = 5
+
+[[urls]]
+url = "https://one.example.com"
+match = "ok"  # entry comment
+
+[[urls]]
+url = "https://two.example.com"
+check_interval_minutes = 15
+"""
+
+
+def test_set_url_check_interval_inserts(tmp_path):
+    path = write_config(tmp_path, SET_INTERVAL_CONFIG)
+    set_url_check_interval(path, "https://one.example.com", 60)
+
+    config = load_config(path)
+    assert config.urls[0].check_interval_minutes == 60
+    assert config.urls[1].check_interval_minutes == 15  # untouched
+    text = path.read_text(encoding="utf-8")
+    assert "# global comment" in text  # comments preserved
+    assert "# entry comment" in text
+
+
+def test_set_url_check_interval_replaces(tmp_path):
+    path = write_config(tmp_path, SET_INTERVAL_CONFIG)
+    set_url_check_interval(path, "https://two.example.com", 240)
+
+    config = load_config(path)
+    assert config.urls[1].check_interval_minutes == 240
+    assert path.read_text(encoding="utf-8").count("check_interval_minutes") == 1
+
+
+def test_set_url_check_interval_unknown_url(tmp_path):
+    path = write_config(tmp_path, SET_INTERVAL_CONFIG)
+    with pytest.raises(ConfigError, match="no \\[\\[urls\\]\\] entry"):
+        set_url_check_interval(path, "https://nope.example.com", 60)
 
 
 def test_missing_file(tmp_path):

@@ -2,10 +2,10 @@
   "ID": "servermon",
   "ExecutablePath": "\"C:\\Program Files\\Python311\\python.exe\" \"C:\\Program Files (x86)\\BigFix Enterprise\\Management Extender\\Plugins\\bigfix-proxyagent-servermon\\plugin\\servermon.py\" --config \"C:\\Program Files (x86)\\BigFix Enterprise\\Management Extender\\Plugins\\bigfix-proxyagent-servermon\\servermon.toml\"",
   "ConfigurationOptions": "",
-  "TargetHintRelevance": "",
+  "TargetHintRelevance": "url",
   "CommandFormat": "JSON",
   "DeviceReportRefreshIntervalMinutes": 60,
   "DeviceReportExpirationIntervalHours": 168,
-  "SendSettingsToPlugin": [],
+  "SendSettingsToPlugin": false,
   "HandlePartialRefresh": true
 }

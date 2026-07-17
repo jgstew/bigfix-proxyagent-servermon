@@ -4,7 +4,7 @@ from servermon import __version__
 from servermon.checker import CheckResult
 from servermon.config import UrlEntry
 from servermon.device import build_report, device_id, device_name
-from servermon.state import LastError
+from servermon.state import DeviceRecord, LastError
 
 
 def make_result(**overrides) -> CheckResult:
@@ -146,10 +146,29 @@ class TestBuildReport:
             time="Tue, 14 Jul 2026 09:00:00 -0400",
         )
         report = build_report(
-            UrlEntry(url="https://example.com"), make_result(), last_error=last_error
+            UrlEntry(url="https://example.com"),
+            make_result(),
+            device_state=DeviceRecord(last_error=last_error),
         )
         assert report["http check last error"] == last_error.detail
         assert report["http check last error time"] == last_error.time
+
+    def test_last_device_report_time_from_state(self):
+        contact = "Tue, 14 Jul 2026 09:00:00 -0400"
+        report = build_report(
+            UrlEntry(url="https://example.com"),
+            make_result(),
+            device_state=DeviceRecord(last_contact=contact),
+        )
+        assert report["last device report time"] == contact
+
+    def test_no_last_device_report_time_when_never_contacted(self):
+        report = build_report(
+            UrlEntry(url="https://example.com"),
+            make_result(),
+            device_state=DeviceRecord(),
+        )
+        assert "last device report time" not in report
 
     def test_sequence_echoed_when_present(self):
         entry = UrlEntry(url="https://example.com")
