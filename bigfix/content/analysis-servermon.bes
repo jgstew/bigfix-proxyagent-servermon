@@ -46,5 +46,6 @@ These properties read "no error recorded" for a device that has never failed.</p
 		<Property Name="SSL Certificate Expires" ID="17"><![CDATA[if exists ssl certificate expires then (ssl certificate expires) as string else "n/a"]]></Property>
 		<Property Name="SSL Certificate Days Remaining" ID="18"><![CDATA[if exists ssl certificate expires then (((ssl certificate expires) - now) / day) as integer as string else "n/a"]]></Property>
 		<Property Name="Remote IP Address" ID="13"><![CDATA[if exists remote ip address then remote ip address else "n/a"]]></Property>
+		<Property Name="Proxy Agent Plugin" ID="19"><![CDATA[if exists proxy agent plugin then ((name of it & " v" & (version of it as string) & " on " & host of it & " @ " & (last report time of it as string)) of proxy agent plugin) else "n/a"]]></Property>
 	</Analysis>
 </BES>
