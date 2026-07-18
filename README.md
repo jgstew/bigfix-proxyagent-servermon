@@ -133,7 +133,7 @@ The proxy agent ships a `Version 3` inspector list that every plugin should fill
 
 CPU, BIOS, drive, RAM, and logged-on-user inspectors are deliberately left unfilled (a URL has none of those); the console shows their default values. The connected peer IP and TLS version are read from the live check socket, so they reflect the actual connection, not just a DNS lookup - both are absent when the server was unreachable.
 
-A ready-to-import analysis exposing all of these as properties is provided in [bigfix-content/analysis-servermon.bes](bigfix-content/analysis-servermon.bes). Its applicability relevance (`in proxy agent context` AND `exists servermon version`) keeps it relevant only on devices reported by this plugin. It also derives an **SSL Certificate Days Remaining** property from the expiry, handy for alerting on soon-to-expire certs.
+A ready-to-import analysis exposing all of these as properties is provided in [bigfix/content/analysis-servermon.bes](bigfix/content/analysis-servermon.bes). Its applicability relevance (`in proxy agent context` AND `exists servermon version`) keeps it relevant only on devices reported by this plugin. It also derives an **SSL Certificate Days Remaining** property from the expiry, handy for alerting on soon-to-expire certs.
 
 Example analysis properties targeting these devices:
 

@@ -204,7 +204,7 @@ a report makes `exists <phrase>` false - servermon uses that for
 "no error recorded" semantics. Content should guard with
 `in proxy agent context AND exists <plugin-specific inspector>` so it is never
 relevant on real BES clients (see
-[bigfix-content/analysis-servermon.bes](bigfix-content/analysis-servermon.bes)).
+[bigfix/content/analysis-servermon.bes](bigfix/content/analysis-servermon.bes)).
 
 ## The action lifecycle (and its one big trap)
 
