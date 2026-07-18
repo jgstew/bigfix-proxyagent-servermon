@@ -7,7 +7,7 @@ A BigFix Management Extender (Proxy Agent) plugin that monitors web servers / UR
 - The **operating system** column shows the web server's `Server` header when available (e.g. `nginx/1.25.3`).
 - Virtual inspectors expose the **HTTP response code**, a **detailed check result string**, and more to analyses.
 
-The plugin protocol is modeled on [bigfix/trask](https://github.com/bigfix/trask), rewritten in modern Python (3.11+, standard library only - no dependencies). For a general reference on how Proxy Agent plugins work (with this repo as the example), see [ProxyAgents.md](ProxyAgents.md).
+The plugin protocol is modeled on [bigfix/trask](https://github.com/bigfix/trask), rewritten in modern Python (3.11+, standard library only - no dependencies). For a general reference on how Proxy Agent plugins work (with this repo as the example), see [ProxyAgents.md](bigfix/reference-files/ProxyAgents.md).
 
 ## How it works
 
