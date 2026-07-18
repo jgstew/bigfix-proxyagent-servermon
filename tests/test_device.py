@@ -66,11 +66,12 @@ class TestBuildReport:
 
     def test_check_fields(self):
         report = build_report(UrlEntry(url="https://example.com"), make_result())
-        assert report["url"] == "https://example.com"
-        assert report["http response code"] == 200
-        assert report["http check result"].startswith("OK:")
-        assert report["check success"] is True
-        assert report["response time ms"] == 12
+        check = report["http check"]
+        assert check["url"] == "https://example.com"
+        assert check["response code"] == 200
+        assert check["result"].startswith("OK:")
+        assert check["success"] is True
+        assert check["response time ms"] == 12
         assert report["last check time"] == "Wed, 15 Jul 2026 10:00:00 -0400"
         assert report["in proxy agent context"] is True
 
@@ -87,14 +88,14 @@ class TestBuildReport:
     def test_os_version_is_plugin_version_for_plain_http(self):
         report = build_report(UrlEntry(url="http://example.com"), make_result())
         assert report["operating system"]["version"] == __version__
-        assert "tls version" not in report
+        assert "tls version" not in report["http check"]
 
     def test_os_version_is_tls_version_for_https(self):
         report = build_report(
             UrlEntry(url="https://example.com"), make_result(tls_version="TLSv1.3")
         )
         assert report["operating system"]["version"] == "1.3"
-        assert report["tls version"] == "TLSv1.3"
+        assert report["http check"]["tls version"] == "TLSv1.3"
 
     def test_reserved_property_inspectors(self):
         report = build_report(
@@ -107,7 +108,7 @@ class TestBuildReport:
         report = build_report(
             UrlEntry(url="https://example.com"), make_result(peer_ip="93.184.216.34")
         )
-        assert report["remote ip address"] == "93.184.216.34"
+        assert report["http check"]["remote ip address"] == "93.184.216.34"
         interface = report["network"]["ip interfaces"][0]
         assert interface["address"] == "93.184.216.34"
         assert interface["loopback"] is False
@@ -133,23 +134,23 @@ class TestBuildReport:
     def test_no_network_when_no_connection(self):
         report = build_report(UrlEntry(url="https://example.com"), make_result())
         assert "network" not in report
-        assert "remote ip address" not in report
+        assert "remote ip address" not in report["http check"]
 
-    def test_ssl_certificate_expires_when_present(self):
+    def test_ssl_certificate_expiration_when_present(self):
         expiry = "Wed, 04 Jun 2035 11:04:38 +0000"
         report = build_report(
             UrlEntry(url="https://example.com"), make_result(cert_expires=expiry)
         )
-        assert report["ssl certificate expires"] == expiry
+        assert report["http check"]["ssl certificate expiration"] == expiry
 
-    def test_no_ssl_certificate_expires_without_cert(self):
+    def test_no_ssl_certificate_expiration_without_cert(self):
         report = build_report(UrlEntry(url="https://example.com"), make_result())
-        assert "ssl certificate expires" not in report
+        assert "ssl certificate expiration" not in report["http check"]
 
     def test_no_last_error_keys_on_success(self):
         report = build_report(UrlEntry(url="https://example.com"), make_result())
-        assert "http check last error" not in report
-        assert "http check last error time" not in report
+        assert "last error" not in report["http check"]
+        assert "last error time" not in report["http check"]
 
     def test_last_error_keys_when_state_provides_one(self):
         last_error = LastError(
@@ -161,8 +162,8 @@ class TestBuildReport:
             make_result(),
             device_state=DeviceRecord(last_error=last_error),
         )
-        assert report["http check last error"] == last_error.detail
-        assert report["http check last error time"] == last_error.time
+        assert report["http check"]["last error"] == last_error.detail
+        assert report["http check"]["last error time"] == last_error.time
 
     def test_last_device_report_time_from_state(self):
         contact = "Tue, 14 Jul 2026 09:00:00 -0400"
@@ -211,20 +212,20 @@ class TestBuildReport:
 
     def test_bad_string_found_only_when_no_match_configured(self):
         plain = build_report(UrlEntry(url="https://example.com"), make_result())
-        assert "bad string found" not in plain
+        assert "bad string found" not in plain["http check"]
 
         with_no_match = build_report(
             UrlEntry(url="https://example.com", no_match="database error"),
             make_result(success=False, bad_string_found=True),
         )
-        assert with_no_match["bad string found"] is True
+        assert with_no_match["http check"]["bad string found"] is True
 
     def test_match_found_only_when_match_configured(self):
         no_match = build_report(UrlEntry(url="https://example.com"), make_result())
-        assert "match found" not in no_match
+        assert "match found" not in no_match["http check"]
 
         with_match = build_report(
             UrlEntry(url="https://example.com", match="hello"),
             make_result(match_found=True),
         )
-        assert with_match["match found"] is True
+        assert with_match["http check"]["match found"] is True

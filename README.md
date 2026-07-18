@@ -71,7 +71,7 @@ Notes:
 - Each `[[urls]]` entry becomes one device. Two entries that differ only by scheme or a trailing slash would be the same device, so the config loader rejects them.
 - `match` and `no_match` are both case-insensitive **regexes** searched against the response headers and the first 1 MiB of the body. `match` must be found for the check to pass; a `no_match` hit fails the check even on HTTP 200 - for catching pages like "Could not connect to the database" served with a success status. Plain text works as a pattern, but regex metacharacters (`. ? * + ( ) [ ] \`) are interpreted - escape them with `\` if you mean them literally. Both are validated at config load.
 - Redirects are followed; the final response is what gets reported.
-- A URL that returns HTTP 4xx/5xx, fails its `match`, trips its `no_match`, or does not respond at all reports `check success = false` (an unreachable server reports response code `0`).
+- A URL that returns HTTP 4xx/5xx, fails its `match`, trips its `no_match`, or does not respond at all reports `success of http check = false` (an unreachable server reports response code `0`).
 
 ### Check interval - [settings.json](settings.json)
 
@@ -99,24 +99,32 @@ Which bundles were loaded is logged at startup (`TLS trust: loaded ...`); a bund
 
 [Inspectors/servermon.inspectors](Inspectors/servermon.inspectors) declares the device report keys as relevance inspectors:
 
+The check itself is one nested `http check` object, read with `<phrase> of http check`:
+
 | Inspector | Type | Example |
 |---|---|---|
-| `http response code` | integer | `200` (`0` = no HTTP response received) |
-| `http check result` | string | `OK: HTTP 200 OK (231 ms); matched 'Example Domain' in body` |
-| `http check last error` | string | detail string of the most recent *failed* check |
-| `http check last error time` | time | when that error occurred |
-| `check success` | boolean | `true` |
-| `match found` | boolean | only present when `match` is configured |
-| `bad string found` | boolean | only present when `no_match` is configured; `true` = reachable but serving known-bad content |
-| `url` | string | `https://example.com` |
-| `response time ms` | integer | `231` |
+| `url of http check` | string | `https://example.com` |
+| `response code of http check` | integer | `200` (`0` = no HTTP response received) |
+| `result of http check` | string | `OK: HTTP 200 OK (231 ms); matched 'Example Domain' in body` |
+| `success of http check` | boolean | `true` |
+| `match found of http check` | boolean | only present when `match` is configured |
+| `bad string found of http check` | boolean | only present when `no_match` is configured; `true` = reachable but serving known-bad content |
+| `response time ms of http check` | integer | `231` |
+| `last error of http check` | string | detail string of the most recent *failed* check |
+| `last error time of http check` | time | when that error occurred |
+| `tls version of http check` | string | `TLSv1.3` (absent for plain http / no connection) |
+| `ssl certificate expiration of http check` | time | server cert `notAfter`, e.g. `Sat, 29 Aug 2026 21:41:26 +0000` (absent for plain http or `verify_tls = false`) |
+| `remote ip address of http check` | string | `172.66.147.243` (absent when nothing connected) |
+
+Plus the plugin-level top-level inspectors:
+
+| Inspector | Type | Example |
+|---|---|---|
 | `refresh interval` | integer | effective check cadence in minutes: the URL's `check_interval_minutes`, else the heartbeat from settings.json |
 | `last check time` | time | `Wed, 15 Jul 2026 14:00:00 -0400` |
-| `tls version` | string | `TLSv1.3` (absent for plain http / no connection) |
-| `ssl certificate expires` | time | server cert `notAfter`, e.g. `Sat, 29 Aug 2026 21:41:26 +0000` (absent for plain http or `verify_tls = false`) |
-| `remote ip address` | string | `172.66.147.243` (absent when nothing connected) |
 | `servermon version` | string | `0.1.0` |
 | `in proxy agent context` | boolean | `true` |
+| `proxy agent plugin` | object | `name of it` (`servermon`), `version of it`, `host of it` (the relay), `last report time of it` |
 
 ### Built-in (reserved property) inspectors
 
@@ -138,8 +146,8 @@ A ready-to-import analysis exposing all of these as properties is provided in [b
 Example analysis properties targeting these devices:
 
 ```
-Q: http response code
-Q: http check result
+Q: response code of http check
+Q: result of http check
 Q: last check time
 ```
 
@@ -149,9 +157,9 @@ Three timestamps with distinct meanings are reported:
 - `last server communication` - also the check time; the Proxy Agent uses it as the "effective device communication time" that decides whether a report is new, so reports stay fresh every cycle regardless of file timestamps.
 - `last device report time` - the last time the URL actually answered with an HTTP response (any status code; declared in the agent's own `main.inspectors`). When present, the Proxy Agent uses it to generate the console's **Last Report Time** - so a URL that stops responding shows a stale Last Report Time and eventually greys out like a dead client, while its other properties keep updating. Until a URL has responded at least once, the key is absent and Last Report Time falls back to the report time.
 
-The `http check result` string always starts with `OK:`, `FAILED:` (an HTTP response was received but the status or match check failed), or `ERROR:` (no HTTP response - DNS, TCP, TLS, or timeout failure, with the reason).
+The `result of http check` string always starts with `OK:`, `FAILED:` (an HTTP response was received but the status or match check failed), or `ERROR:` (no HTTP response - DNS, TCP, TLS, or timeout failure, with the reason).
 
-`http check last error` and `http check last error time` capture the most recent failed check even after it clears. Because a device report fully replaces the device's previous data in BigFix, the plugin remembers each device's last error in a small state file (`servermon-state.json` in the repo root by default, `--state-file` to relocate) and re-sends it with every report until a newer error replaces it. The keys are absent only for a device that has never failed.
+`last error of http check` and `last error time of http check` capture the most recent failed check even after it clears. Because a device report fully replaces the device's previous data in BigFix, the plugin remembers each device's last error in a small state file (`servermon-state.json` in the repo root by default, `--state-file` to relocate) and re-sends it with every report until a newer error replaces it. The keys are absent only for a device that has never failed.
 
 ## On-demand checks ("check now")
 

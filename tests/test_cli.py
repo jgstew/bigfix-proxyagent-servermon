@@ -50,7 +50,7 @@ def test_check_json_outputs_device_reports(config_file, capsys):
     main(["--config", str(config_file), "--check", "--json"])
     reports = json.loads(capsys.readouterr().out)
     assert len(reports) == 2
-    assert {report["http response code"] for report in reports} == {200, 404}
+    assert {report["http check"]["response code"] for report in reports} == {200, 404}
     assert all("last check time" in report for report in reports)
 
 

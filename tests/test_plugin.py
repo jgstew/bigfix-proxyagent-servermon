@@ -53,9 +53,9 @@ def test_full_refresh_writes_all_reports(http_server, dirs):
     plugin.process_command_dir(pending)
 
     ok = read_report(output, f"{http_server}/ok")
-    assert ok["http response code"] == 200
-    assert ok["check success"] is True
-    assert ok["match found"] is True
+    assert ok["http check"]["response code"] == 200
+    assert ok["http check"]["success"] is True
+    assert ok["http check"]["match found"] is True
     assert ok["data source"] == "servermon"
     assert ok["computer name"].endswith("/ok")
     assert not ok["computer name"].startswith("http")
@@ -63,16 +63,16 @@ def test_full_refresh_writes_all_reports(http_server, dirs):
     assert ok["refresh interval"] == 60
 
     missing = read_report(output, f"{http_server}/does-not-exist")
-    assert missing["http response code"] == 404
-    assert missing["check success"] is False
-    assert missing["http check result"].startswith("FAILED:")
-    assert "match found" not in missing
+    assert missing["http check"]["response code"] == 404
+    assert missing["http check"]["success"] is False
+    assert missing["http check"]["result"].startswith("FAILED:")
+    assert "match found" not in missing["http check"]
 
     # Last-error keys appear only in failed reports, so BigFix retains the
     # previous error across later successful reports.
-    assert missing["http check last error"] == missing["http check result"]
-    assert missing["http check last error time"] == missing["last check time"]
-    assert "http check last error" not in ok
+    assert missing["http check"]["last error"] == missing["http check"]["result"]
+    assert missing["http check"]["last error time"] == missing["last check time"]
+    assert "last error" not in ok["http check"]
 
     # Deleting the command file acknowledges the refresh was processed.
     assert not command_file.is_file()
@@ -148,7 +148,7 @@ def test_new_config_url_reported_on_any_refresh(http_server, dirs, tmp_path):
     assert targeted["deviceReportSequence"] == 5
 
     piggybacked = read_report(output, new)
-    assert piggybacked["http response code"] == 500
+    assert piggybacked["http check"]["response code"] == 500
     # The sequence belongs to the targeted device, not the new one.
     assert "deviceReportSequence" not in piggybacked
     assert "device report sequence" not in piggybacked
@@ -252,8 +252,8 @@ def test_last_error_persists_across_runs(http_server, dirs, tmp_path):
     write_command(pending, {"CommandName": "refresh", "OutputDirectory": str(output)})
     plugin.process_command_dir(pending)
     first = read_report(output, f"{http_server}/flaky")
-    assert first["http response code"] == 500
-    assert first["http check last error"] == first["http check result"]
+    assert first["http check"]["response code"] == 500
+    assert first["http check"]["last error"] == first["http check"]["result"]
 
     # Second run in a new plugin instance: /flaky has recovered, but the
     # previous error (and its time) must still be present in the report.
@@ -261,10 +261,10 @@ def test_last_error_persists_across_runs(http_server, dirs, tmp_path):
     write_command(pending, {"CommandName": "refresh", "OutputDirectory": str(output)})
     plugin.process_command_dir(pending)
     second = read_report(output, f"{http_server}/flaky")
-    assert second["http response code"] == 200
-    assert second["check success"] is True
-    assert second["http check last error"] == first["http check last error"]
-    assert second["http check last error time"] == first["http check last error time"]
+    assert second["http check"]["response code"] == 200
+    assert second["http check"]["success"] is True
+    assert second["http check"]["last error"] == first["http check"]["last error"]
+    assert second["http check"]["last error time"] == first["http check"]["last error time"]
     # Both runs got HTTP responses (500 then 200), so the contact time
     # advances to the latest check.
     assert second["last device report time"] == second["last check time"]
@@ -405,7 +405,7 @@ def test_check_interval_replays_cached_report(http_server, dirs, tmp_path):
         "device id": target,
         "computer name": "cached-device",
         "data source": "servermon",
-        "http response code": 299,
+        "http check": {"response code": 299},
         "last check time": "Mon, 13 Jul 2026 07:00:00 -0400",
         "last server communication": "Mon, 13 Jul 2026 07:00:00 -0400",
     }
@@ -425,7 +425,7 @@ def test_check_interval_replays_cached_report(http_server, dirs, tmp_path):
     plugin.process_command_dir(pending)
 
     report = read_report(output, url)
-    assert report["http response code"] == 299  # cached, not re-checked
+    assert report["http check"]["response code"] == 299  # cached, not re-checked
     assert report["last check time"] == "Mon, 13 Jul 2026 07:00:00 -0400"
     # ...but the report itself is fresh so the Proxy Agent treats it as new.
     assert report["last server communication"] != "Mon, 13 Jul 2026 07:00:00 -0400"
@@ -452,7 +452,7 @@ def test_check_interval_without_cache_checks_anyway(http_server, dirs, tmp_path)
 
     plugin.process_command_dir(pending)
 
-    assert read_report(output, url)["http response code"] == 200
+    assert read_report(output, url)["http check"]["response code"] == 200
 
 
 def test_check_interval_elapsed_checks_again(http_server, dirs, tmp_path):
@@ -787,7 +787,7 @@ def test_unreachable_url_keeps_stale_contact_time(closed_port_url, dirs, tmp_pat
     plugin.process_command_dir(pending)
 
     report = read_report(output, closed_port_url)
-    assert report["http response code"] == 0
+    assert report["http check"]["response code"] == 0
     assert report["last device report time"] == old_contact
     # The report itself is still fresh: the check happened now.
     assert report["last server communication"] == report["last check time"]

@@ -68,7 +68,8 @@ The only file the agent requires. servermon's, annotated:
 - `DeviceReportExpirationIntervalHours` - a device that stops reporting for
   this long is dropped by the agent. Silence is how proxied devices die.
 - `TargetHintRelevance` - relevance the agent evaluates per device and passes
-  to the plugin as `targetHint` with each command (servermon uses `"url"`).
+  to the plugin as `targetHint` with each command (servermon uses
+  `"url of http check"`).
 - `SendSettingsToPlugin` - whether `setting` / `setting delete` actionscript
   commands are forwarded to the plugin (boolean; servermon: `false`).
 - `HandlePartialRefresh` - whether the plugin accepts per-device (targeted)
@@ -103,7 +104,7 @@ notification-driven refreshes arrive as *per-device* files named
 {"outputDirectory": "...\\DeviceReports",
  "targetDevice": "2321c64a07e0...",
  "commandName": "refresh",
- "requiredProperties": ["check success", "http response code", "..."],
+ "requiredProperties": ["success of http check", "response code of http check", "..."],
  "deviceReportSequence": 2}
 ```
 
@@ -208,13 +209,16 @@ A `.inspectors` file is a list of `phrase: type` declarations mapping report
 keys to relevance phrases - a small data store dressed up as inspectors:
 
 ```
-http response code: integer
-ssl certificate expires: time     <- JSON string, implicitly cast (MIME date)
-check success: boolean
+http check: http check
+response code of <http check>: integer                <- reads "http check".response code
+ssl certificate expiration of <http check>: time      <- JSON string, implicitly cast (MIME date)
+success of <http check>: boolean
 ```
 
-Plurals use JSON arrays (`cheeses: plural string`), complex types use nested
-objects (`address of <ip interface>: ipv4or6 address` reads
+Plurals use JSON arrays (`cheeses: plural string`), nested objects group
+related keys under a parent phrase (servermon reports the whole check as one
+`http check` object, read as `response code of http check` etc.; the built-in
+`address of <ip interface>: ipv4or6 address` likewise reads
 `network.ip interfaces[].address`), and any type castable from
 string/int/float/bool works (`time` being the most useful). A key omitted from
 a report makes `exists <phrase>` false - servermon uses that for

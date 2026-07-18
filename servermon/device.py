@@ -89,11 +89,6 @@ def build_report(
             "last report time": result.checked_at,
         },
         "servermon version": __version__,
-        "url": entry.url,
-        "http response code": result.status_code,
-        "http check result": result.detail,
-        "check success": result.success,
-        "response time ms": result.response_time_ms,
         "last check time": result.checked_at,
         # The Proxy Agent only treats a report as new if the "effective
         # device communication" time advances, and it feeds the console's
@@ -101,15 +96,27 @@ def build_report(
         # the checks regardless of file modification times.
         "last server communication": result.checked_at,
     }
+    # The check itself, as one nested "http check" inspector object: relevance
+    # reads these as "url of http check", "response code of http check", etc.
+    # (declared in Inspectors/servermon.inspectors). Optional keys are added
+    # below; a key omitted here makes its "exists ... of http check" false.
+    http_check: dict[str, Any] = {
+        "url": entry.url,
+        "response code": result.status_code,
+        "result": result.detail,
+        "success": result.success,
+        "response time ms": result.response_time_ms,
+    }
+    report["http check"] = http_check
     # TLS protocol version of the connection, and the remote IP actually
     # connected to. The IP also feeds the reserved "IP Address" console
     # property via the built-in network inspectors.
     if result.tls_version is not None:
-        report["tls version"] = result.tls_version
+        http_check["tls version"] = result.tls_version
     if result.cert_expires is not None:
-        report["ssl certificate expires"] = result.cert_expires
+        http_check["ssl certificate expiration"] = result.cert_expires
     if result.peer_ip is not None:
-        report["remote ip address"] = result.peer_ip
+        http_check["remote ip address"] = result.peer_ip
         report["network"] = _network_structure(result.peer_ip)
     # The effective check cadence in minutes: this URL's configured
     # check_interval_minutes, else the plugin-wide heartbeat
@@ -120,13 +127,13 @@ def build_report(
     if interval is not None:
         report["refresh interval"] = interval
     # Only present when a match string is configured, so relevance can use
-    # "exists match found of ..." to distinguish unconfigured from failed.
+    # "exists match found of http check" to distinguish unconfigured from failed.
     if entry.match is not None:
-        report["match found"] = bool(result.match_found)
+        http_check["match found"] = bool(result.match_found)
     # Likewise only present when a no_match pattern is configured; true means
     # the server was reachable but served the known-bad content.
     if entry.no_match is not None:
-        report["bad string found"] = bool(result.bad_string_found)
+        http_check["bad string found"] = bool(result.bad_string_found)
     # Per-device history tracked in the plugin's state file (see state.py).
     # Device reports fully replace prior data in BigFix, so these must be
     # re-sent with every report to stay visible.
@@ -134,8 +141,8 @@ def build_report(
         # The most recent error this device has ever had; absent only if
         # the device has never failed.
         if device_state.last_error is not None:
-            report["http check last error"] = device_state.last_error.detail
-            report["http check last error time"] = device_state.last_error.time
+            http_check["last error"] = device_state.last_error.detail
+            http_check["last error time"] = device_state.last_error.time
         # Last time the URL actually answered with an HTTP response. When
         # present, the Proxy Agent uses it to generate the console's Last
         # Report Time, so a URL that stops responding shows a visibly stale

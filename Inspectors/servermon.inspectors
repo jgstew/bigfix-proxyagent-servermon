@@ -1,18 +1,19 @@
 in proxy agent context: boolean
-url: string
-http response code: integer
-http check result: string
-http check last error: string
-http check last error time: time
-check success: boolean
-match found: boolean
-bad string found: boolean
-response time ms: integer
+http check: http check
+url of <http check>: string
+response code of <http check>: integer
+result of <http check>: string
+success of <http check>: boolean
+match found of <http check>: boolean
+bad string found of <http check>: boolean
+response time ms of <http check>: integer
+last error of <http check>: string
+last error time of <http check>: time
+tls version of <http check>: string
+ssl certificate expiration of <http check>: time
+remote ip address of <http check>: string
 refresh interval: integer
 last check time: time
-tls version: string
-ssl certificate expires: time
-remote ip address: string
 servermon version: string
 proxy agent plugin: proxy agent plugin
 name of <proxy agent plugin>: string
