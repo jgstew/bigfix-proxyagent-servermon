@@ -1,0 +1,79 @@
+# Version 3
+
+### This file is installed alongside the proxy agent, and represents the list of inspectors that will be made available to all
+### proxy agent plugins.  Plugins should fill in as many of these inspectors as they can.
+
+### These inspectors are REQUIRED for the proper functioning of a proxy agent plugin.
+
+device id: string        # A unique identifier for each device
+computer name: string    # The display name of the device
+data source: string      # Name of the system where data is coming from, for example "Microsoft Exchange"
+
+### These inspectors are required for proper correlation in our correlation dashboard
+
+correlation keys: plural correlation key
+name of <correlation key>: string
+value of <correlation key>: string
+
+### These are the inspectors that a plugin must fill in in order to get accurate data displayed for each
+### reserved or predefined property.  Try to fill in as many of these as possible.  If an inspector isn't
+### filled in, the property will return its default value (usually blank, or "n/a").
+
+# Device Type
+device type: string
+
+# DNS Name, Relay Name of Client
+dns name: string
+
+# OS
+operating system: operating system
+name of <operating system>: string
+version of <operating system>: version
+
+# IP Address, Subnet Address
+network: network
+ip interfaces of <network>: plural ip interface
+address of <ip interface>: ipv4or6 address          # Required for IP Address
+subnet address of <ip interface>: ipv4or6 address   # Required for Subnet Address
+loopback of <ip interface>: boolean
+
+#IPv6 Address
+adapters of <network>: plural network adapter
+up of <network adapter>: boolean
+loopback of <network adapter>: boolean
+ipv6 interfaces of <network adapter>: plural network adapter interface
+address of <network adapter interface>: ipv4or6 address
+
+# CPU
+main processor: processor
+speed of <processor>: hertz
+family name of <processor>: string
+
+# BIOS
+bios: string
+
+# Free Space on System Drive, Total Size of System Drive
+system folder: folder
+drive of <folder>: drive
+free space of <drive>: integer
+total space of <drive>: integer
+
+# RAM
+ram: ram
+size of <ram>: integer
+
+# User Name
+current user: logged on user
+logged on users: plural logged on user
+name of <logged on user>: string
+
+
+
+### These are generally useful inspectors that aren't part of any reserved property.
+
+proxy agent plugin: proxy agent plugin
+last report time of <proxy agent plugin>: time
+version of <proxy agent plugin>: version
+last device report time: time
+
+user language: string

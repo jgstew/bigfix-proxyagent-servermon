@@ -1,0 +1,186 @@
+lexClass:
+	name			= global
+	parent:file		= <*.ActionScript>
+
+lexClass:
+	name		= comment
+	parent		= global
+	start:tag	='//'
+	skip:Tag	= '\\\r\n', '\\\n\r', '\\\n', '\\\r'
+	end:separators = @eol
+	txt:colorFG	= 0x00A000
+	DisplayName		= 'Comment (Single-Line)'
+
+lexClass:
+	name			= string
+	parent:dyn		= global
+	start:Tag		= '"'
+	skip:Tag		= '\\"', '\\\r\n', '\\\n\r', '\\\n', '\\\r'
+	end:Tag			= '"', @eol
+	txt:colorFG		= 0xE00000
+	DisplayName		= 'String (Double Quotes)'
+
+lexClass:
+	name			= relevance
+	parent:dyn		= global
+	children		= url
+	start:Tag		= '{'
+	skip:Tag		= '\\"', '\\\r\n', '\\\n\r', '\\\n', '\\\r'
+	end:Tag			= '}', @eol
+	txt:colorFG		= 0xff00ff
+	DisplayName		= 'String (Double Quotes)'
+
+lexClass:
+	name		= url
+	parent:dyn	= global
+	previous:tag	= @specs, ' ', '\t', @eol
+	start:Tag		= 'http:'
+	end:separators	= ' ', '\t', '*', '"', @eol
+	txt:colorBK	= 0xC0FFC0
+	txt:Underline	= 1
+	DisplayName		= 'URL'
+
+lexClass:
+	name = download_now_as
+	parent = global
+	previous:tag = @eol
+	token:tag = 'download now as'
+	txt:colorFG	= 0x0000FF
+
+lexClass:
+	name = download_as
+	parent = global
+	previous:tag = @eol
+	token:tag = 'download as'
+	txt:colorFG	= 0x0000FF
+
+lexClass:
+	name = download
+	parent = global
+	previous:tag = @eol
+	token:tag = 'download'
+	txt:colorFG	= 0x0000FF
+
+lexClass:
+	name = setting_delete
+	parent = global
+	previous:tag = @eol
+	token:tag = 'setting delete'
+	txt:colorFG	= 0x0000FF
+
+lexClass:
+	name = setting
+	parent = global
+	previous:tag = @eol
+	token:tag = 'setting'
+	txt:colorFG	= 0x0000FF
+
+lexClass:
+	name = keywords
+	ParseOnScreen = 0
+	parent = global
+	children = 0
+	DisplayName = 'Keyword'
+
+	token:tag = 'delete'
+	token:tag = 'copy'
+	token:tag = 'move'
+	token:tag = 'regset64'
+	token:tag = 'regdelete64'
+	token:tag = 'script64'
+	token:tag = 'regset'
+	token:tag = 'regdelete'
+	token:tag = 'fixlet delete'
+	token:tag = 'pause while'
+	token:tag = 'enable gathering'
+	token:tag = 'fixlet close'
+	token:tag = 'fixlet restore'
+	token:tag = 'browse to'
+	token:tag = 'dos'
+	token:tag = 'runhidden'
+	token:tag = 'waithidden'
+	token:tag = 'rundetached'
+	token:tag = 'waitdetached'
+	token:tag = 'run'
+	token:tag = 'wait'
+	token:tag = 'script'
+	token:tag = 'open'
+	token:tag = 'appendfile'
+	token:tag = 'unsubscribe'
+	token:tag = 'module delete'
+	token:tag = 'module add'
+	token:tag = 'module commit'
+	token:tag = 'site force evaluation'
+	token:tag = 'site gather schedule publisher'
+	token:tag = 'site gather schedule manual'
+	token:tag = 'site gather schedule disable'
+	token:tag = 'site gather schedule seconds'
+	token:tag = 'continue if'
+	token:tag = 'set clock'
+	token:tag = 'restart'
+	token:tag = 'shutdown'
+	token:tag = 'action lock until'
+	token:tag = 'action lock indefinite'
+	token:tag = 'action unlock'
+	token:tag = 'action requires restart'
+	token:tag = 'action may require restart'
+	token:tag = 'action requires login'
+	token:tag = 'action parameter query'
+	token:tag = 'administrator add'
+	token:tag = 'administrator delete'
+	token:tag = 'administrative rights enable'
+	token:tag = 'administrative rights disable'
+	token:tag = 'subscribe'
+	token:tag = 'relay select'
+	token:tag = 'archive now'
+	token:tag = 'extract'
+	token:tag = 'utility'
+	token:tag = 'if'
+	token:tag = 'elseif'
+	token:tag = 'else'
+	token:tag = 'endif'
+	token:tag = 'parameter'
+	token:tag = 'createfile until'
+	token:tag = 'prefetch'
+	token:tag = 'custom site subscribe'
+	token:tag = 'custom site unsubscribe'
+	token:tag = 'action uses wow64 redirection'
+	token:tag = 'action launch preference low-priority'
+	token:tag = 'action launch preference normal-priority'
+	token:tag = 'notify client'
+	token:tag = 'begin prefetch block'
+	token:tag = 'add nohash prefetch item'
+	token:tag = 'add prefetch item'
+	token:tag = 'collect prefetch items'
+	token:tag = 'execute prefetch plug-in'
+	token:tag = 'end prefetch block'
+	token:tag = 'folder create'
+	token:tag = 'folder delete'
+	token:tag = 'exit'
+	token:tag = 'override run'
+	token:tag = 'override wait'
+	token:tag = 'client restart'
+	token:tag = 'action log command'
+	token:tag = 'action log all'
+	token:tag = 'quarantine'
+	token:tag = 'reset a2a agent'
+	token:tag = 'agent interface'
+	token:tag = 'action uses file encoding'
+
+	token:tag = 'binary name delete'
+	token:tag = 'binary name copy'
+	token:tag = 'binary name move'
+	token:tag = 'binary name folder create'
+	token:tag = 'binary name folder delete'
+
+	token:tag = 'regkeydelete'
+	token:tag = 'regkeydelete64'
+
+	token:tag = 'plugin store'
+
+	token:tag = 'client certificate refresh'
+
+	token:start:separators	= ' ', '\t', ':', ';', '!', '(', ')', ',', '/', '{', '}', @eol
+	token:end:separators	= ' ', '\t', ':', ';', '!', '(', ')', '{', '}', @eol
+
+	txt:colorFG	= 0x0000FF

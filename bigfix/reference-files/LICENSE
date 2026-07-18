@@ -1,0 +1,30 @@
+Reference Files - Licensing Notice
+==================================
+
+The files in this directory (bigfix/reference-files/) are NOT covered by the
+license that applies to the rest of this repository (see the Apache License 2.0
+in the LICENSE file at the repository root).
+
+These are third-party reference materials produced by and belonging to BigFix.
+They are publicly available files, but being publicly available does not
+place them under any open source license. No open source license is granted for
+them, and none should be inferred.
+
+They are included here only as reference documentation for developing BigFix
+Proxy Agent plugins. All rights to these files remain with their original
+owner. Their sources, where known:
+
+- ActionScript.schclass
+    From an installed BigFix console:
+    "BigFix Enterprise\BES Console\Reference"
+
+- ProxyPluginCommands.json
+    Published on the BES Support site, e.g.:
+    https://sync.bigfix.com/bfsites/bessupport_1513/ProxyPluginCommands.json
+
+- main.inspectors
+    From a system with the BigFix management extender installed:
+    "BigFix Enterprise\Management Extender\Inspectors"
+
+Refer to the original sources for their authoritative copies and any applicable
+terms.

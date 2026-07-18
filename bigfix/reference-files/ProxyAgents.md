@@ -125,6 +125,23 @@ practice (verified live) commands listed there for *any* plugin are delivered,
 which is how servermon supports `refresh`, `set refresh interval <minutes>`,
 and `delete device`.
 
+> **Note - valid command names.** The actionscript commands a proxy agent can
+> issue are not open-ended: each must already be a known BigFix actionscript
+> command. In practice that means the command name must appear in one of two
+> reference files (both under [bigfix/reference-files/](.)):
+>
+> - [`ActionScript.schclass`](ActionScript.schclass) - the console's actionscript
+>   syntax-highlighting class, whose `token:tag` entries enumerate the built-in
+>   actionscript commands. It ships with an installed BigFix console at
+>   `BigFix Enterprise\BES Console\Reference`.
+> - [`ProxyPluginCommands.json`](ProxyPluginCommands.json) - the per-plugin
+>   whitelist of commands the agent will forward (see above). It is published on
+>   the BES Support site; the current copy at time of writing is
+>   <https://sync.bigfix.com/bfsites/bessupport_1513/ProxyPluginCommands.json>.
+>
+> A custom plugin cannot invent new command names outside these sets - it can
+> only implement handling for commands that already exist in one of them.
+
 One wrinkle: a **refresh carrying a `commandID`** is an action-driven refresh.
 Its `outputDirectory` is the action-results directory, and it expects a
 command *result*, not device reports.
@@ -205,6 +222,19 @@ a report makes `exists <phrase>` false - servermon uses that for
 `in proxy agent context AND exists <plugin-specific inspector>` so it is never
 relevant on real BES clients (see
 [bigfix/content/analysis-servermon.bes](bigfix/content/analysis-servermon.bes)).
+
+> **Note - prefer the standard inspectors.** Beyond whatever custom relevance a
+> plugin defines, a proxy agent should also try to fill in as many of the
+> standard inspectors in [`main.inspectors`](main.inspectors) as make sense for
+> that type of proxy agent. That file is installed alongside the management
+> extender (from `BigFix Enterprise\Management Extender\Inspectors` on a Windows
+> system with the management extender installed) and enumerates the inspectors -
+> device identity, reserved/predefined properties, correlation keys, and other
+> generally useful phrases - that all plugins are expected to populate where they
+> can. None are strictly mandatory, but populating them is recommended wherever
+> possible: it is what drives accurate values for the reserved/predefined
+> properties and correct correlation. When one of these existing inspectors is a
+> good enough fit, use it rather than inventing a custom phrase for the same data.
 
 ## The action lifecycle (and its one big trap)
 
