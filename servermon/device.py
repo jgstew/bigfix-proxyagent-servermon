@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import ipaddress
 import re
+import socket
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlsplit
 
@@ -16,6 +17,15 @@ if TYPE_CHECKING:
     from .state import DeviceRecord
 
 DATA_SOURCE = "servermon"
+
+# The computer hosting this proxy agent plugin: generally the Windows BigFix
+# relay running the Proxy Agent. Resolved once at import (a local syscall, no
+# network resolution); it never changes for the life of the process. Falls back
+# to "Unknown" if the hostname cannot be determined.
+try:
+    PLUGIN_HOST = socket.gethostname()
+except OSError:
+    PLUGIN_HOST = "Unknown"
 
 _SCHEME_RE = re.compile(r"^[a-z][a-z0-9+.-]*://", re.IGNORECASE)
 
@@ -68,6 +78,16 @@ def build_report(
             ),
         },
         "in proxy agent context": True,
+        # The standard "proxy agent plugin" inspector object (see the built-in
+        # main.inspectors list). "name" is this plugin's name and "host" is the
+        # computer running the Proxy Agent (the BigFix relay); "last report
+        # time" is when this report was produced.
+        "proxy agent plugin": {
+            "name": DATA_SOURCE,
+            "version": __version__,
+            "host": PLUGIN_HOST,
+            "last report time": result.checked_at,
+        },
         "servermon version": __version__,
         "url": entry.url,
         "http response code": result.status_code,

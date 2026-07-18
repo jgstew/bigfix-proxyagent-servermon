@@ -14,3 +14,8 @@ tls version: string
 ssl certificate expires: time
 remote ip address: string
 servermon version: string
+proxy agent plugin: proxy agent plugin
+name of <proxy agent plugin>: string
+version of <proxy agent plugin>: version
+host of <proxy agent plugin>: string
+last report time of <proxy agent plugin>: time
