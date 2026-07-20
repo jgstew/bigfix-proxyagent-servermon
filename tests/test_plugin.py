@@ -314,6 +314,7 @@ def test_non_command_files_ignored(http_server, dirs):
     plugin = make_plugin(http_server)
     stray = pending / "Thumbs.db"
     stray.write_text("not a command", encoding="utf-8")
+    (pending / "subdir.json").mkdir()  # a directory is not a command either
 
     plugin.process_command_dir(pending)  # must not raise
 
@@ -432,6 +433,64 @@ def test_check_interval_replays_cached_report(http_server, dirs, tmp_path):
     # The reported cadence reflects the current config, not the cached one.
     assert report["refresh interval"] == 60
     assert not command_file.is_file()
+
+
+def test_replayed_cached_report_echoes_sequence(http_server, dirs, tmp_path):
+    pending, output = dirs
+    url = f"{http_server}/ok"
+    target = device_id(url)
+    now = email.utils.format_datetime(datetime.now().astimezone())
+    cached_report = {
+        "device id": target,
+        "computer name": "cached-device",
+        "data source": "servermon",
+        "http check": {"response code": 299},
+    }
+    state_file = tmp_path / "servermon-state.json"
+    state_file.write_text(
+        json.dumps({target: {"last check": now, "last report": cached_report}}),
+        encoding="utf-8",
+    )
+    config = Config(
+        urls=(UrlEntry(url=url, check_interval_minutes=60),), timeout_seconds=5
+    )
+    plugin = ServerMonPlugin(config, state_file=state_file)
+    write_command(
+        pending,
+        {
+            "CommandName": "refresh",
+            "OutputDirectory": str(output),
+            "TargetDevice": target,
+            "deviceReportSequence": 9,
+        },
+    )
+
+    plugin.process_command_dir(pending)
+
+    report = read_report(output, url)
+    assert report["http check"]["response code"] == 299  # replayed from cache
+    # The Proxy Agent's sequence number must ride along on the replay too.
+    assert report["device report sequence"] == 9
+    assert report["deviceReportSequence"] == 9
+
+
+def test_garbage_last_check_time_checks_again(http_server, dirs, tmp_path):
+    # An unparsable "last check" (hand-edited state) must fail open: check.
+    pending, output = dirs
+    url = f"{http_server}/ok"
+    state_file = tmp_path / "servermon-state.json"
+    state_file.write_text(
+        json.dumps({device_id(url): {"last check": "not a date"}}), encoding="utf-8"
+    )
+    config = Config(
+        urls=(UrlEntry(url=url, check_interval_minutes=60),), timeout_seconds=5
+    )
+    plugin = ServerMonPlugin(config, state_file=state_file)
+    write_command(pending, {"CommandName": "refresh", "OutputDirectory": str(output)})
+
+    plugin.process_command_dir(pending)
+
+    assert read_report(output, url)["http check"]["response code"] == 200
 
 
 def test_check_interval_without_cache_checks_anyway(http_server, dirs, tmp_path):
@@ -798,6 +857,68 @@ def test_delete_device_last_entry_leaves_valid_config(http_server, dirs, tmp_pat
     assert load_config(config_path).urls == ()
 
 
+def test_set_refresh_interval_url_missing_from_file(http_server, dirs, tmp_path):
+    """The device exists in the in-memory config but its [[urls]] entry is
+    gone from the file (edited out from under the plugin): the edit fails.
+
+    and the command reports Error instead of corrupting the file.
+    """
+    pending, output = dirs
+    config_path = tmp_path / "servermon.toml"
+    config_path.write_text(
+        f'[[urls]]\nurl = "{http_server}/other"\n', encoding="utf-8"
+    )
+    config = Config(urls=(UrlEntry(url=f"{http_server}/ok"),), timeout_seconds=5)
+    plugin = ServerMonPlugin(config, config_path=config_path)
+    write_command(
+        pending,
+        {
+            "commandName": "set refresh interval",
+            "commandArguments": "120",
+            "outputDirectory": str(output),
+            "targetDevice": device_id(f"{http_server}/ok"),
+            "commandID": "560-0",
+        },
+    )
+
+    plugin.process_command_dir(pending)
+
+    result = json.loads(
+        next(iter(output.glob("560-0-*.json"))).read_text(encoding="utf-8")
+    )
+    assert result[0]["Result"] == "Error"
+
+
+def test_finalize_deletion_survives_config_edit_failure(
+    http_server, dirs, tmp_path
+):
+    """If finalizing a deferred deletion cannot remove the [[urls]] entry
+    (the file changed under the plugin), the refresh must still complete,.
+
+    and the device must stay pending for a later retry.
+    """
+    pending, output = dirs
+    config_path = tmp_path / "servermon.toml"
+    config_path.write_text(
+        f'[[urls]]\nurl = "{http_server}/other"\n', encoding="utf-8"
+    )
+    target = device_id(f"{http_server}/ok")
+    state_file = tmp_path / "servermon-state.json"
+    state_file.write_text(
+        json.dumps({target: {"pending deletion": True}}), encoding="utf-8"
+    )
+    config = Config(urls=(UrlEntry(url=f"{http_server}/ok"),), timeout_seconds=5)
+    plugin = ServerMonPlugin(config, state_file=state_file, config_path=config_path)
+    write_command(pending, {"CommandName": "refresh", "OutputDirectory": str(output)})
+
+    plugin.process_command_dir(pending)  # must not raise
+
+    assert (output / f"{target}.report").is_file()  # refresh still answered
+    assert json.loads(state_file.read_text(encoding="utf-8"))[target][
+        "pending deletion"
+    ] is True  # still flagged for a later attempt
+
+
 def test_delete_device_without_config_path(http_server, dirs):
     pending, output = dirs
     plugin = make_plugin(http_server)  # no config_path to edit
@@ -886,6 +1007,38 @@ def test_missing_command_dir_raises(http_server, tmp_path):
     plugin = make_plugin(http_server)
     with pytest.raises(FileNotFoundError):
         plugin.process_command_dir(tmp_path / "nope")
+
+
+def test_empty_entry_lists_are_noops(http_server):
+    plugin = make_plugin(http_server)
+    assert plugin.check_and_report([]) == []
+    assert plugin.run_checks([]) == []
+
+
+def test_command_file_already_removed_is_fine(http_server, dirs):
+    # Some Proxy Agent versions clean up command files themselves; removing
+    # an already-gone file must not raise.
+    from servermon.command import Command
+    from servermon.plugin import _remove_command_file
+
+    pending, _ = dirs
+    command = Command(pending / "gone.json", {"commandname": "refresh"})
+    _remove_command_file(command)  # must not raise
+
+
+def test_unremovable_command_file_is_logged_not_fatal(http_server, dirs, caplog):
+    import logging
+
+    from servermon.command import Command
+    from servermon.plugin import _remove_command_file
+
+    pending, _ = dirs
+    blocker = pending / "cmd.json"
+    blocker.mkdir()  # os.remove on a directory raises OSError
+    command = Command(blocker, {"commandname": "refresh"})
+    with caplog.at_level(logging.WARNING, logger="servermon.plugin"):
+        _remove_command_file(command)  # must not raise
+    assert any("could not remove" in r.message for r in caplog.records)
 
 
 def test_report_write_failure_leaves_command_for_retry(http_server, dirs, tmp_path):
@@ -1003,6 +1156,30 @@ class TestNetworkHopsGating:
         )
         plugin.process_command_dir(pending)
         assert calls == []
+
+    def test_garbage_last_hops_check_measures_again(
+        self, http_server, dirs, tmp_path, monkeypatch
+    ):
+        # An unparsable "last hops check" must fail open: measure now.
+        pending, output = dirs
+        calls = []
+        monkeypatch.setattr(
+            "servermon.plugin.measure_network_hops",
+            lambda url, timeout: calls.append(url) or 7,
+        )
+        state_file = tmp_path / "state.json"
+        state_file.write_text(
+            json.dumps(
+                {device_id(f"{http_server}/ok"): {"last hops check": "not a date"}}
+            ),
+            encoding="utf-8",
+        )
+        plugin = self._plugin(http_server, tmp_path)
+        write_command(
+            pending, {"CommandName": "refresh", "OutputDirectory": str(output)}
+        )
+        plugin.process_command_dir(pending)
+        assert len(calls) == 1
 
     def test_failed_measurement_waits_full_interval(
         self, http_server, dirs, tmp_path, monkeypatch

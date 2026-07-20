@@ -1,12 +1,16 @@
 import logging
+import socket
 import ssl
+import types
 from datetime import datetime
+from unittest.mock import MagicMock
 
 import pytest
 
 import servermon.checker
 from servermon.checker import (TIME_FORMAT, _build_ssl_context, _cert_expiry,
-                               _load_ca_bundle, _ssl_context, check_url)
+                               _connection_info, _load_ca_bundle, _probe_ttl,
+                               _response_texts, _ssl_context, check_url)
 from servermon.config import UrlEntry
 
 
@@ -180,6 +184,23 @@ def test_unresolvable_host():
     assert result.detail.startswith("ERROR:")
 
 
+def test_malformed_url_never_raises():
+    # "http://[::1" passes config validation (scheme prefix only) but makes
+    # urllib's Request constructor raise ValueError; check_url promises to
+    # never raise, so this must degrade to a status-0 error result.
+    result = check("http://[::1")
+    assert result.status_code == 0
+    assert result.success is False
+    assert result.detail.startswith("ERROR: unexpected ValueError")
+
+
+def test_control_characters_in_url_are_an_error():
+    result = check("http://exa mple.com/")
+    assert result.status_code == 0
+    assert result.success is False
+    assert result.detail.startswith("ERROR:")
+
+
 def test_timeout_is_an_error_not_a_hang(http_server):
     # /slow stalls for 2s; with a 0.25s timeout the check must come back
     # quickly as a status-0 error.
@@ -306,6 +327,34 @@ class TestConnectTime:
         assert result.connect_time_ms is None
 
 
+class TestConnectionInfo:
+    def test_tls_socket_reports_version_and_cert(self):
+        # A Mock with spec=ssl.SSLSocket passes the isinstance check, letting
+        # the TLS branch be exercised without a real TLS server.
+        sock = MagicMock(spec=ssl.SSLSocket)
+        sock.getpeername.return_value = ("93.184.216.34", 443)
+        sock.version.return_value = "TLSv1.3"
+        sock.getpeercert.return_value = {"notAfter": "Jun  4 11:04:38 2035 GMT"}
+        raw = types.SimpleNamespace(_sock=sock)
+        response = types.SimpleNamespace(fp=types.SimpleNamespace(raw=raw))
+
+        peer, tls, expiry = _connection_info(response)
+        assert peer == "93.184.216.34"
+        assert tls == "TLSv1.3"
+        assert expiry is not None
+
+    def test_surprise_shapes_degrade_to_none(self):
+        # _connection_info reaches through http.client internals; anything
+        # unexpected must degrade to (None, None, None), never raise.
+        assert _connection_info(object()) == (None, None, None)
+
+
+def test_response_texts_without_headers():
+    header_text, body_text = _response_texts(None, b"plain body")
+    assert header_text == ""
+    assert body_text == "plain body"
+
+
 class TestMeasureNetworkHops:
     def test_loopback_is_one_hop(self, http_server):
         hops = servermon.checker.measure_network_hops(
@@ -329,3 +378,89 @@ class TestMeasureNetworkHops:
 
     def test_never_raises_on_garbage_url(self):
         assert servermon.checker.measure_network_hops("http://", timeout=1) is None
+
+    def test_never_raises_on_unsplittable_url(self):
+        # urlsplit itself raises ValueError for an unclosed IPv6 bracket.
+        assert (
+            servermon.checker.measure_network_hops("http://[::1", timeout=1) is None
+        )
+
+    def test_never_raises_on_invalid_port(self):
+        # urlsplit parses the port lazily; a non-numeric port raises there.
+        assert (
+            servermon.checker.measure_network_hops("http://host:banana", timeout=1)
+            is None
+        )
+
+    def test_empty_getaddrinfo_returns_none(self, monkeypatch):
+        # getaddrinfo normally raises for unknown hosts, but an empty result
+        # list is possible and must not crash the binary search.
+        monkeypatch.setattr(socket, "getaddrinfo", lambda *a, **kw: [])
+        assert servermon.checker.measure_network_hops(
+            "http://example.com", timeout=1
+        ) is None
+
+    def test_unreachable_at_max_ttl_returns_none(self, monkeypatch):
+        # If even the unlimited-TTL probe fails, there is nothing to measure.
+        monkeypatch.setattr(
+            servermon.checker, "_probe_ttl", lambda *args: False
+        )
+        assert servermon.checker.measure_network_hops(
+            "http://127.0.0.1", timeout=1
+        ) is None
+
+    def test_binary_search_converges_on_first_working_ttl(self, monkeypatch):
+        # Probes fail below TTL 5 and succeed from 5 up; the search must
+        # land exactly on 5, exercising both halves of the bisection.
+        monkeypatch.setattr(
+            servermon.checker,
+            "_probe_ttl",
+            lambda family, sockaddr, ttl, timeout: ttl >= 5,
+        )
+        assert servermon.checker.measure_network_hops(
+            "http://127.0.0.1", timeout=1
+        ) == 5
+
+
+class TestProbeTtl:
+    def test_ipv6_refused_counts_as_reached(self):
+        # An RST from a closed IPv6 loopback port proves the packet arrived;
+        # exercises the IPV6_UNICAST_HOPS socket option branch.
+        with socket.socket(socket.AF_INET6) as sock:
+            try:
+                sock.bind(("::1", 0))
+            except OSError:
+                pytest.skip("IPv6 loopback unavailable")
+            port = sock.getsockname()[1]
+        assert _probe_ttl(
+            socket.AF_INET6, ("::1", port, 0, 0), ttl=64, timeout=5
+        ) is True
+
+    def test_unreachable_address_is_false(self):
+        # 192.0.2.1 (TEST-NET-1, RFC 5737) is guaranteed unassigned: the
+        # connect times out or errors, and either way the probe reports False.
+        assert _probe_ttl(
+            socket.AF_INET, ("192.0.2.1", 80), ttl=64, timeout=0.2
+        ) is False
+
+    def test_socket_creation_failure_is_false(self):
+        # An invalid address family makes socket() itself raise OSError.
+        assert _probe_ttl(9999, ("127.0.0.1", 80), ttl=64, timeout=0.2) is False
+
+
+def test_certifi_bundle_loaded_when_installed(
+    fresh_ssl_context_cache, tmp_path, monkeypatch, caplog
+):
+    # certifi is an optional extra; fake it to prove its bundle gets loaded.
+    import sys
+
+    bundle = tmp_path / "certifi.pem"
+    bundle.write_text(_some_system_ca_pem(), encoding="utf-8")
+    monkeypatch.setitem(
+        sys.modules,
+        "certifi",
+        types.SimpleNamespace(where=lambda: str(bundle)),
+    )
+    with caplog.at_level(logging.INFO, logger="servermon.checker"):
+        _ssl_context(True)
+    assert any("certifi bundle" in r.message for r in caplog.records)

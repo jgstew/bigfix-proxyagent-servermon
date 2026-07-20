@@ -128,3 +128,37 @@ def test_log_file_directory_auto_created(config_file, tmp_path):
 def test_command_dir_required_without_check(config_file):
     with pytest.raises(SystemExit):
         main(["--config", str(config_file)])
+
+
+def test_unknown_arguments_are_ignored(config_file):
+    # A future Proxy Agent may pass flags this version does not know about;
+    # they must be ignored, not fatal.
+    assert main(["--config", str(config_file), "--validate", "--futureFlag", "x"]) == 0
+
+
+def test_bad_config_without_validate_exits_one(tmp_path, monkeypatch):
+    monkeypatch.setattr(cli, "DEFAULT_CONFIG", (tmp_path / "default.toml").resolve())
+    assert main(["--config", str(tmp_path / "missing.toml"), "--check"]) == 1
+
+
+def test_missing_default_config(tmp_path, monkeypatch, capsys):
+    # Requesting exactly the (missing) default config: no fallback to try.
+    missing_default = (tmp_path / "default.toml").resolve()
+    monkeypatch.setattr(cli, "DEFAULT_CONFIG", missing_default)
+    assert main(["--config", str(missing_default), "--validate"]) == 1
+    out = capsys.readouterr().out
+    assert "INVALID" in out
+    assert "also tried default" not in out
+
+
+def test_unwritable_log_file_is_not_fatal(config_file, tmp_path):
+    # A path component that is a regular file makes the log dir creation
+    # fail; the run must continue with stderr-only logging.
+    blocker = tmp_path / "blocker"
+    blocker.write_text("", encoding="utf-8")
+    log_file = blocker / "Logs" / "servermon.log"
+    assert (
+        main(["--config", str(config_file), "--validate", "--log-file", str(log_file)])
+        == 0
+    )
+    assert not log_file.exists()

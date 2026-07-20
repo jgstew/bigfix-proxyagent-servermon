@@ -70,10 +70,6 @@ def check_url(entry: UrlEntry, *, timeout: float, user_agent: str) -> CheckResul
     "ERROR: ..." detail, so one bad URL cannot abort a whole refresh.
     """
     checked_at = email.utils.format_datetime(datetime.now().astimezone())
-    request = urllib.request.Request(
-        entry.url, headers={"User-Agent": user_agent, "Accept": "*/*"}
-    )
-
     context = _ssl_context(entry.verify_tls)
     # Filled in by the timing connection factory when a TCP connect completes;
     # survives into the error paths (e.g. TLS failure after a good connect).
@@ -84,6 +80,11 @@ def check_url(entry: UrlEntry, *, timeout: float, user_agent: str) -> CheckResul
 
     started = time.monotonic()
     try:
+        # Inside the try: a malformed URL (e.g. an unclosed IPv6 bracket)
+        # makes the Request constructor itself raise ValueError.
+        request = urllib.request.Request(
+            entry.url, headers={"User-Agent": user_agent, "Accept": "*/*"}
+        )
         with opener.open(request, timeout=timeout) as response:
             peer_ip, tls_version, cert_expires = _connection_info(response)
             body = response.read(MAX_BODY_BYTES)
@@ -213,11 +214,16 @@ def measure_network_hops(url: str, *, timeout: float) -> int | None:
     impossible. Anycast/CDN targets measure the path to the nearest edge, and
     routes change, so treat the value as an estimate.
     """
-    parts = urlsplit(url)
-    host = parts.hostname
+    try:
+        parts = urlsplit(url)
+        host = parts.hostname
+        # .port is parsed lazily and raises for a non-numeric/out-of-range
+        # port, just like urlsplit does for an unclosed IPv6 bracket.
+        port = parts.port or (443 if parts.scheme == "https" else 80)
+    except ValueError:
+        return None
     if not host:
         return None
-    port = parts.port or (443 if parts.scheme == "https" else 80)
     probe_timeout = min(timeout, HOP_PROBE_TIMEOUT_SECONDS)
 
     try:

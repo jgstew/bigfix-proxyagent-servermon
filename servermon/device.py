@@ -35,6 +35,16 @@ def device_name(url: str) -> str:
     return _SCHEME_RE.sub("", url.strip()).rstrip("/")
 
 
+def _url_hostname(url: str) -> str | None:
+    """The URL's hostname, or None when the URL cannot be split (e.g. an
+    unclosed IPv6 bracket): a failed check must still produce a report.
+    """
+    try:
+        return urlsplit(url).hostname
+    except ValueError:
+        return None
+
+
 def device_id(url: str) -> str:
     """Stable device id for a monitored URL, used as the report file name.
 
@@ -68,7 +78,7 @@ def build_report(
         # is the TLS protocol version (or the plugin version for plain
         # http), and the DNS name is the URL's hostname.
         "device type": "Web Server",
-        "dns name": urlsplit(entry.url).hostname or device_name(entry.url),
+        "dns name": _url_hostname(entry.url) or device_name(entry.url),
         "operating system": {
             "name": result.server or DATA_SOURCE,
             "version": (

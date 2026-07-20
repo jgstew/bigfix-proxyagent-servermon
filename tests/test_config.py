@@ -445,6 +445,57 @@ def test_heartbeat_minutes_rejects_bad_values(tmp_path):
         assert heartbeat_minutes(settings) == DEFAULT_HEARTBEAT_MINUTES, content
 
 
+def test_edit_invalid_toml_rejected_by_tomlkit(tmp_path):
+    if servermon.config.load_tomlkit() is None:
+        pytest.skip("tomlkit not available")
+    path = write_config(tmp_path, "urls = [")
+    with pytest.raises(ConfigError, match="invalid TOML"):
+        set_url_check_interval(path, "https://one.example.com", 60)
+
+
+def test_remove_url_line_without_urls_header(tmp_path, monkeypatch):
+    # Regex fallback: a top-level "url =" line with no [[urls]] header above
+    # it must be a clear error, not a bogus deletion.
+    monkeypatch.setattr(servermon.config, "load_tomlkit", lambda: None)
+    path = write_config(
+        tmp_path,
+        """
+        url = "https://stray.example.com"
+
+        [[urls]]
+        url = "https://real.example.com"
+        """,
+    )
+    with pytest.raises(ConfigError, match=r"no \[\[urls\]\] header"):
+        remove_url_entry(path, "https://stray.example.com")
+
+
+def test_corrupting_edit_is_refused(tmp_path, monkeypatch):
+    """The regex fallback validates its result before writing: an edit that
+    would leave unparsable TOML must raise and leave the file untouched.
+
+    A multiline match value fools the fallback's line-based table-end
+    detection, so removing the entry would cut the string in half.
+    """
+    monkeypatch.setattr(servermon.config, "load_tomlkit", lambda: None)
+    original = """\
+[[urls]]
+url = "https://one.example.com"
+
+[[urls]]
+url = "https://victim.example.com"
+match = \"\"\"
+[abc]
+more regex\"\"\"
+"""
+    path = write_config(tmp_path, original)
+    load_config(path)  # sanity: the original file is valid
+
+    with pytest.raises(ConfigError, match="edit would corrupt"):
+        remove_url_entry(path, "https://victim.example.com")
+    assert path.read_text(encoding="utf-8") == original  # untouched
+
+
 def test_set_url_check_interval_missing_file(tmp_path, write_backend):
     with pytest.raises(ConfigError, match="cannot read"):
         set_url_check_interval(tmp_path / "nope.toml", "https://one.example.com", 60)

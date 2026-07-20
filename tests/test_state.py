@@ -157,6 +157,14 @@ def test_concurrent_instances_merge_on_save(tmp_path):
     )
 
 
+def test_non_object_state_file_starts_fresh(tmp_path):
+    # Valid JSON, wrong shape: must be treated like a missing file.
+    path = tmp_path / "state.json"
+    path.write_text("[1, 2, 3]", encoding="utf-8")
+    record = DeviceState(path).record("dev1", make_result(True, "OK"))
+    assert record.last_error is None
+
+
 def test_corrupt_state_file_starts_fresh(tmp_path):
     path = tmp_path / "state.json"
     path.write_text("{not json", encoding="utf-8")

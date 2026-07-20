@@ -97,6 +97,25 @@ class TestBuildReport:
         assert report["operating system"]["version"] == "1.3"
         assert report["http check"]["tls version"] == "TLSv1.3"
 
+    def test_malformed_url_still_builds_report(self):
+        # "http://[::1" passes config validation but makes urlsplit raise;
+        # the failed check must still produce a report so the device stays
+        # visible in BigFix with the error, instead of aborting the refresh.
+        url = "http://[::1"
+        report = build_report(
+            UrlEntry(url=url),
+            make_result(
+                url=url,
+                status_code=0,
+                success=False,
+                detail="ERROR: unexpected ValueError: Invalid IPv6 URL",
+                server="",
+            ),
+        )
+        assert report["computer name"] == device_name(url)
+        assert report["dns name"] == device_name(url)  # hostname unavailable
+        assert report["http check"]["success"] is False
+
     def test_reserved_property_inspectors(self):
         report = build_report(
             UrlEntry(url="https://example.com:8443/health"), make_result()
@@ -130,6 +149,18 @@ class TestBuildReport:
         assert adapter["ipv6 interfaces"][0]["address"] == (
             "2606:2800:220:1:248:1893:25c8:1946"
         )
+
+    def test_unparseable_ip_still_reported(self):
+        # A peer address that ipaddress cannot parse (e.g. an unexpected
+        # scoped/mapped form) must still be reported, classified by a plain
+        # ":" heuristic instead of crashing report generation.
+        report = build_report(
+            UrlEntry(url="https://example.com"), make_result(peer_ip="bogus::ip%x")
+        )
+        interface = report["network"]["ip interfaces"][0]
+        assert interface["address"] == "bogus::ip%x"
+        assert interface["loopback"] is False
+        assert "adapters" in report["network"]  # ":" -> treated as IPv6
 
     def test_no_network_when_no_connection(self):
         report = build_report(UrlEntry(url="https://example.com"), make_result())
