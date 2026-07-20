@@ -183,6 +183,10 @@ class TestBuildReport:
         interface = report["network"]["ip interfaces"][0]
         assert interface["address"] == "93.184.216.34"
         assert interface["loopback"] is False
+        # Mirror the native <ip interface>: a peer we connected to is up, so the
+        # same "up of ip interfaces of network" relevance works on both native
+        # and proxied devices.
+        assert interface["up"] is True
         assert "adapters" not in report["network"]
 
     def test_loopback_ip_flagged(self):

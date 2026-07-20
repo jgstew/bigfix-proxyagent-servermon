@@ -244,8 +244,13 @@ def _network_structure(peer_ip: str) -> dict[str, Any]:
         loopback = False
         is_ipv6 = ":" in peer_ip
 
+    # "up" mirrors the native <ip interface> inspector: we only build this
+    # structure for a peer we actually connected to, so the interface is up.
+    # Declaring it (Inspectors/servermon.inspectors) lets one relevance
+    # statement - "... up of ip interfaces of network ..." - resolve on both
+    # native and proxied devices.
     network: dict[str, Any] = {
-        "ip interfaces": [{"address": peer_ip, "loopback": loopback}],
+        "ip interfaces": [{"address": peer_ip, "loopback": loopback, "up": True}],
     }
     if is_ipv6:
         # The reserved "IPv6 Address" property reads addresses via adapters.

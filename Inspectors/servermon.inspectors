@@ -22,3 +22,4 @@ name of <proxy agent plugin>: string
 version of <proxy agent plugin>: version
 host of <proxy agent plugin>: string
 last report time of <proxy agent plugin>: time
+up of <ip interface>: boolean
