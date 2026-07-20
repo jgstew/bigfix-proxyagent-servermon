@@ -210,3 +210,4 @@ repos:
         stages: [manual]
         additional_dependencies:
           - lxml
+          - pytest-cov
