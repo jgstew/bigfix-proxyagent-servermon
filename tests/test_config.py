@@ -3,7 +3,8 @@ import pytest
 import servermon.config
 from servermon.config import (DEFAULT_TIMEOUT_SECONDS, DEFAULT_USER_AGENT,
                               ConfigError, add_url_entry, load_config,
-                              remove_url_entry, set_url_check_interval)
+                              remove_url_entry, set_url_check_interval,
+                              set_url_option)
 
 
 def write_config(tmp_path, text):
@@ -232,6 +233,57 @@ def test_remove_url_entry_unknown_url(tmp_path, write_backend):
     path = write_config(tmp_path, SET_INTERVAL_CONFIG)
     with pytest.raises(ConfigError, match="no \\[\\[urls\\]\\] entry"):
         remove_url_entry(path, "https://nope.example.com")
+
+
+def test_set_url_option_string(tmp_path, write_backend):
+    path = write_config(tmp_path, SET_INTERVAL_CONFIG)
+    set_url_option(path, "https://one.example.com", "match", "hello world")
+
+    config = load_config(path)
+    assert config.urls[0].match == "hello world"
+    assert "# global comment" in path.read_text(encoding="utf-8")  # preserved
+
+
+def test_set_url_option_float(tmp_path, write_backend):
+    path = write_config(tmp_path, SET_INTERVAL_CONFIG)
+    set_url_option(path, "https://one.example.com", "timeout_seconds", 12.5)
+    assert load_config(path).urls[0].timeout_seconds == 12.5
+
+
+def test_set_url_option_bool(tmp_path, write_backend):
+    path = write_config(tmp_path, SET_INTERVAL_CONFIG)
+    set_url_option(path, "https://one.example.com", "verify_tls", False)
+    assert load_config(path).urls[0].verify_tls is False
+
+
+def test_set_url_option_regex_with_backslash_roundtrips(tmp_path, write_backend):
+    # A backslash regex must survive the write and re-parse identically under
+    # both the tomlkit and regex backends.
+    path = write_config(tmp_path, SET_INTERVAL_CONFIG)
+    set_url_option(path, "https://two.example.com", "no_match", r"\d{3}\s+error")
+    assert load_config(path).urls[1].no_match == r"\d{3}\s+error"
+
+
+def test_set_url_option_replaces_existing_value(tmp_path, write_backend):
+    path = write_config(tmp_path, SET_INTERVAL_CONFIG)
+    set_url_option(path, "https://two.example.com", "check_interval_minutes", 240)
+    text = path.read_text(encoding="utf-8")
+    assert text.count("check_interval_minutes") == 1  # replaced, not duplicated
+    assert load_config(path).urls[1].check_interval_minutes == 240
+
+
+def test_set_url_option_rejects_bad_value(tmp_path, write_backend):
+    # A negative timeout is caught by the re-parse gate; file left unchanged.
+    path = write_config(tmp_path, SET_INTERVAL_CONFIG)
+    with pytest.raises(ConfigError):
+        set_url_option(path, "https://one.example.com", "timeout_seconds", -1.0)
+    assert load_config(path).urls[0].timeout_seconds is None
+
+
+def test_set_url_option_unknown_url(tmp_path, write_backend):
+    path = write_config(tmp_path, SET_INTERVAL_CONFIG)
+    with pytest.raises(ConfigError, match="no \\[\\[urls\\]\\] entry"):
+        set_url_option(path, "https://nope.example.com", "match", "x")
 
 
 def test_add_url_entry_appends(tmp_path, write_backend):

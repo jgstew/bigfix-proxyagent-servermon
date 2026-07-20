@@ -219,30 +219,39 @@ def _parse_url_entry(item: Any, where: str) -> UrlEntry:
 
 # Line-level patterns for in-place TOML edits (comments/formatting preserved).
 _URL_LINE_RE = re.compile(r"^\s*url\s*=\s*([\"'])(?P<url>.*)\1\s*(#.*)?$")
-_INTERVAL_LINE_RE = re.compile(r"^\s*check_interval_minutes\s*=")
 _TABLE_HEADER_RE = re.compile(r"^\s*\[")
 _URLS_HEADER_RE = re.compile(r"^\s*\[\[urls\]\]")
 _EMPTY_URLS_RE = re.compile(r"^\s*urls\s*=\s*\[\s*\]\s*(#.*)?$")
 
 
-def set_url_check_interval(path: Path | str, url: str, minutes: int) -> None:
-    """Set ``check_interval_minutes`` for one ``[[urls]]`` entry by editing
-    the TOML file in place, preserving comments and formatting.
+def set_url_option(path: Path | str, url: str, key: str, value: object) -> None:
+    """Set ``key = value`` on one ``[[urls]]`` entry by editing the TOML file
+    in place, preserving comments and formatting.
 
-    Used by the "set refresh interval" action command. Prefers the vendored
-    tomlkit; falls back to regex line editing when it is unavailable. Raises
-    ConfigError if the entry cannot be found or the edit would not parse.
+    Used by the "set <field> <value>" action commands (including "set refresh
+    interval", via :func:`set_url_check_interval`). ``value`` is a Python
+    str/int/float/bool. Prefers the vendored tomlkit; falls back to regex line
+    editing when it is unavailable. Raises ConfigError if the entry cannot be
+    found or the edit would not parse (e.g. a bad regex or a non-positive
+    number), leaving the file unchanged.
     """
     path = Path(path)
     tomlkit = load_tomlkit()
     if tomlkit is not None:
         _edit_with_tomlkit(
-            path, url, tomlkit, lambda table: table.__setitem__(
-                "check_interval_minutes", minutes
-            )
+            path, url, tomlkit, lambda table: table.__setitem__(key, value)
         )
     else:
-        _set_url_check_interval_regex(path, url, minutes)
+        _set_url_option_regex(path, url, key, value)
+
+
+def set_url_check_interval(path: Path | str, url: str, minutes: int) -> None:
+    """Set ``check_interval_minutes`` for one ``[[urls]]`` entry (see
+    :func:`set_url_option`).
+
+    Used by the "set refresh interval" action.
+    """
+    set_url_option(path, url, "check_interval_minutes", minutes)
 
 
 def remove_url_entry(path: Path | str, url: str) -> None:
@@ -346,8 +355,8 @@ def _load_tomlkit_doc(path: Path, tomlkit):
         raise ConfigError(f"invalid TOML in {path}: {error}") from error
 
 
-def _set_url_check_interval_regex(path: Path, url: str, minutes: int) -> None:
-    """Tomlkit-free fallback for :func:`set_url_check_interval`."""
+def _set_url_option_regex(path: Path, url: str, key: str, value: object) -> None:
+    """Tomlkit-free fallback for :func:`set_url_option`."""
     lines = _read_config_lines(path)
     url_index = _find_url_line(lines, url, path)
 
@@ -361,15 +370,31 @@ def _set_url_check_interval_regex(path: Path, url: str, minutes: int) -> None:
         len(lines),
     )
 
-    new_line = f"check_interval_minutes = {minutes}"
+    new_line = f"{key} = {_toml_literal(value)}"
+    key_re = re.compile(rf"^\s*{re.escape(key)}\s*=")
     for i in range(url_index + 1, end):
-        if _INTERVAL_LINE_RE.match(lines[i]):
+        if key_re.match(lines[i]):
             lines[i] = new_line
             break
     else:
         lines.insert(url_index + 1, new_line)
 
     _write_validated_config(path, lines)
+
+
+def _toml_literal(value: object) -> str:
+    """Render a Python str/int/float/bool as a TOML value for line editing.
+
+    (The tomlkit backend does this itself.) Strings become basic strings with
+    backslashes and quotes escaped, so a regex like ``\\d+`` round-trips back to
+    the same value through ``tomllib``.
+    """
+    if isinstance(value, bool):  # before int: bool is a subclass of int
+        return "true" if value else "false"
+    if isinstance(value, (int, float)):
+        return repr(value)
+    escaped = str(value).replace("\\", "\\\\").replace('"', '\\"')
+    return f'"{escaped}"'
 
 
 def _remove_url_entry_regex(path: Path, url: str) -> None:

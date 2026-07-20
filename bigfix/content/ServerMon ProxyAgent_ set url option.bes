@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<BES xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="BES.xsd">
+	<Task>
+		<Title>ServerMon ProxyAgent: set url option</Title>
+		<Description>Set one per-URL option on the targeted ServerMon device's [[urls]] entry in servermon.toml. Edit the field and value in the action script before deploying. Supported fields (same names/validation as servermon.toml): match, no_match (a regex); timeout_seconds (positive number); check_interval_minutes (positive integer); verify_tls, measure_network_hops (true/false). A bad value or unknown field is rejected (Result: Error). Uses the whitelisted "set" actionscript command; "set refresh interval" is a separate task.</Description>
+		<Relevance>in proxy agent context</Relevance>
+		<Relevance>exists servermon version</Relevance>
+		<Category></Category>
+		<DownloadSize>0</DownloadSize>
+		<Source>ServerMon ProxyAgent</Source>
+		<SourceID>jgstew</SourceID>
+		<SourceReleaseDate>2026-07-20</SourceReleaseDate>
+		<SourceSeverity></SourceSeverity>
+		<CVENames></CVENames>
+		<SANSID></SANSID>
+		<MIMEField>
+			<Name>x-fixlet-modification-time</Name>
+			<Value>Mon, 20 Jul 2026 00:00:00 +0000</Value>
+		</MIMEField>
+		<Domain>BESC</Domain>
+		<DefaultAction ID="Action1">
+			<Description>
+				<PreLink>Click </PreLink>
+				<Link>here</Link>
+				<PostLink> to deploy this action.</PostLink>
+			</Description>
+			<ActionScript MIMEType="application/x-Fixlet-Windows-Shell">set verify_tls false</ActionScript>
+		</DefaultAction>
+	</Task>
+</BES>

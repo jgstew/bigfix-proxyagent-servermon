@@ -6,6 +6,7 @@ import email.utils
 import itertools
 import logging
 import os
+import re
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from datetime import datetime
@@ -17,7 +18,7 @@ from .checker import CheckResult, check_url, measure_network_hops
 from .command import Command, CommandError
 from .config import (Config, ConfigError, UrlEntry, add_url_entry,
                      heartbeat_minutes, remove_url_entry,
-                     set_url_check_interval)
+                     set_url_check_interval, set_url_option)
 from .device import build_report, device_id, device_name
 from .state import DeviceState
 from .util import write_json_atomic
@@ -38,6 +39,11 @@ DELETE_DEVICE = "delete device"
 # from the console. It can target any servermon device - the target is
 # irrelevant, the URL to add comes from the arguments (see README "Adding a URL").
 PUSH_LINK = "push link"
+# "set <field> <value>": whitelisted "set" command reused as a generic per-URL
+# option setter, targeted at a URL device. "set refresh interval" is a separate
+# (longer) whitelist entry the agent matches first, so it routes to its own
+# handler; everything else arrives here as name "set" with "<field> <value>".
+SET = "set"
 
 # Command result files use the spec-suggested "<commandID>-<PID>-<seq>.json"
 # naming so concurrently running plugin instances can never collide.
@@ -87,6 +93,8 @@ class ServerMonPlugin:
             self._process_delete_device(command)
         elif command.name == PUSH_LINK:
             self._process_push_link(command)
+        elif command.name == SET:
+            self._process_set(command)
         else:
             self._process_unsupported(command)
 
@@ -233,6 +241,61 @@ class ServerMonPlugin:
                 )
             except ConfigError as error:
                 log.warning("%s failed: %s", SET_REFRESH_INTERVAL, error)
+
+        _write_command_result(
+            command,
+            [
+                {
+                    "CommandID": command.command_id,
+                    "DeviceID": command.target_device,
+                    "Result": outcome,
+                }
+            ],
+        )
+        _remove_command_file(command)
+
+    def _process_set(self, command: Command) -> None:
+        """Actionscript "set <field> <value>": set one per-URL option on the
+        targeted device's ``[[urls]]`` entry in servermon.toml.
+
+        Supported fields mirror the config keys: match, no_match,
+        timeout_seconds, check_interval_minutes, verify_tls,
+        measure_network_hops. The value is validated for the field's type
+        before writing; an unknown field, a bad value, an unknown device, or a
+        write that would not parse reports Error.
+        """
+        outcome = "Error"
+        entries = self._match_target(command.target_device, command.target_hint)
+        field, _, raw = str(command.get("commandarguments")).strip().partition(" ")
+        field = field.lower()
+        parser = _SETTABLE_FIELDS.get(field)
+        value = parser(raw) if parser is not None else None
+        if not entries:
+            log.warning("%s: no URL in config for device %r", SET,
+                        command.target_device)
+        elif parser is None:
+            log.warning("%s: unsupported field %r", SET, field)
+        elif value is None:
+            log.warning("%s %s: invalid value %r", SET, field, raw.strip())
+        elif self.config_path is None:
+            log.warning("%s: no config file path to update", SET)
+        else:
+            try:
+                set_url_option(self.config_path, entries[0].url, field, value)
+                # Update the in-memory config so a later command/refresh in this
+                # same invocation sees the new value.
+                self.config = replace(
+                    self.config,
+                    urls=tuple(
+                        replace(entries[0], **{field: value})
+                        if e is entries[0] else e
+                        for e in self.config.urls
+                    ),
+                )
+                outcome = "Completed"
+                log.info("%s: %s = %r for %s", SET, field, value, entries[0].url)
+            except ConfigError as error:
+                log.warning("%s %s failed: %s", SET, field, error)
 
         _write_command_result(
             command,
@@ -587,6 +650,44 @@ def _parse_positive_int(text: str) -> int | None:
     except (AttributeError, ValueError):
         return None
     return value if value >= 1 else None
+
+
+def _parse_positive_float(text: str) -> float | None:
+    try:
+        value = float(text.strip())
+    except (AttributeError, ValueError):
+        return None
+    return value if value > 0 else None
+
+
+def _parse_bool(text: str) -> bool | None:
+    lowered = text.strip().lower()
+    if lowered in ("true", "false"):
+        return lowered == "true"
+    return None
+
+
+def _parse_regex(text: str) -> str | None:
+    text = text.strip()
+    if not text:
+        return None
+    try:
+        re.compile(text)
+    except re.error:
+        return None
+    return text
+
+
+# "set <field> <value>" fields, mapped to a parser turning the raw argument
+# text into the typed value (or None if invalid). Keys match UrlEntry fields.
+_SETTABLE_FIELDS = {
+    "match": _parse_regex,
+    "no_match": _parse_regex,
+    "timeout_seconds": _parse_positive_float,
+    "check_interval_minutes": _parse_positive_int,
+    "verify_tls": _parse_bool,
+    "measure_network_hops": _parse_bool,
+}
 
 
 def _write_command_result(command: Command, results: list[dict[str, str]]) -> None:

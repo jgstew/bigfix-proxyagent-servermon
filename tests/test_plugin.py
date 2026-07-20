@@ -879,6 +879,188 @@ def test_push_link_without_config_path_reports_error(http_server, dirs):
     assert result[0]["Result"] == "Error"
 
 
+def _set_command(output, target, args, cmd_id="700-0"):
+    return {
+        "commandName": "set",
+        "commandArguments": args,
+        "outputDirectory": str(output),
+        "targetDevice": target,
+        "commandID": cmd_id,
+    }
+
+
+def test_set_match_field(http_server, dirs, tmp_path):
+    pending, output = dirs
+    config_path = write_toml_config(tmp_path, http_server)
+    plugin = ServerMonPlugin(load_config(config_path), config_path=config_path)
+    target = device_id(f"{http_server}/ok")
+    write_command(pending, _set_command(output, target, "match hello world"))
+
+    plugin.process_command_dir(pending)
+
+    assert load_config(config_path).urls[0].match == "hello world"
+    result = json.loads(
+        next(iter(output.glob("700-0-*.json"))).read_text(encoding="utf-8")
+    )
+    assert result == [{"CommandID": "700-0", "DeviceID": target, "Result": "Completed"}]
+
+
+def test_set_timeout_seconds_field(http_server, dirs, tmp_path):
+    pending, output = dirs
+    config_path = write_toml_config(tmp_path, http_server)
+    plugin = ServerMonPlugin(load_config(config_path), config_path=config_path)
+    target = device_id(f"{http_server}/ok")
+    write_command(pending, _set_command(output, target, "timeout_seconds 12.5"))
+
+    plugin.process_command_dir(pending)
+
+    assert load_config(config_path).urls[0].timeout_seconds == 12.5
+
+
+def test_set_bool_field_case_insensitive_command(http_server, dirs, tmp_path):
+    pending, output = dirs
+    config_path = write_toml_config(tmp_path, http_server)
+    plugin = ServerMonPlugin(load_config(config_path), config_path=config_path)
+    target = device_id(f"{http_server}/ok")
+    write_command(
+        pending,
+        {
+            "commandName": "SET",
+            "commandArguments": "verify_tls false",
+            "outputDirectory": str(output),
+            "targetDevice": target,
+            "commandID": "701-0",
+        },
+    )
+
+    plugin.process_command_dir(pending)
+
+    assert load_config(config_path).urls[0].verify_tls is False
+    result = json.loads(
+        next(iter(output.glob("701-0-*.json"))).read_text(encoding="utf-8")
+    )
+    assert result[0]["Result"] == "Completed"
+
+
+def test_set_regex_with_backslash_roundtrips(http_server, dirs, tmp_path):
+    pending, output = dirs
+    config_path = write_toml_config(tmp_path, http_server)
+    plugin = ServerMonPlugin(load_config(config_path), config_path=config_path)
+    target = device_id(f"{http_server}/ok")
+    write_command(pending, _set_command(output, target, r"no_match \d{3} error"))
+
+    plugin.process_command_dir(pending)
+
+    assert load_config(config_path).urls[0].no_match == r"\d{3} error"
+
+
+def test_set_unknown_field_reports_error(http_server, dirs, tmp_path):
+    pending, output = dirs
+    config_path = write_toml_config(tmp_path, http_server)
+    plugin = ServerMonPlugin(load_config(config_path), config_path=config_path)
+    target = device_id(f"{http_server}/ok")
+    write_command(pending, _set_command(output, target, "url http://evil.example"))
+
+    plugin.process_command_dir(pending)
+
+    assert load_config(config_path).urls[0].url == f"{http_server}/ok"  # unchanged
+    result = json.loads(
+        next(iter(output.glob("700-0-*.json"))).read_text(encoding="utf-8")
+    )
+    assert result[0]["Result"] == "Error"
+
+
+def test_set_invalid_value_reports_error(http_server, dirs, tmp_path):
+    pending, output = dirs
+    config_path = write_toml_config(tmp_path, http_server)
+    plugin = ServerMonPlugin(load_config(config_path), config_path=config_path)
+    target = device_id(f"{http_server}/ok")
+    write_command(pending, _set_command(output, target, "timeout_seconds banana"))
+
+    plugin.process_command_dir(pending)
+
+    assert load_config(config_path).urls[0].timeout_seconds is None
+    result = json.loads(
+        next(iter(output.glob("700-0-*.json"))).read_text(encoding="utf-8")
+    )
+    assert result[0]["Result"] == "Error"
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        "verify_tls maybe",  # not a boolean
+        "match",  # no regex given
+        "match [unclosed",  # not a valid regex
+    ],
+)
+def test_set_rejects_bad_field_values(http_server, dirs, tmp_path, args):
+    pending, output = dirs
+    config_path = write_toml_config(tmp_path, http_server)
+    plugin = ServerMonPlugin(load_config(config_path), config_path=config_path)
+    target = device_id(f"{http_server}/ok")
+    write_command(pending, _set_command(output, target, args))
+
+    plugin.process_command_dir(pending)
+
+    entry = load_config(config_path).urls[0]
+    assert entry.match is None and entry.verify_tls is True  # unchanged
+    result = json.loads(
+        next(iter(output.glob("700-0-*.json"))).read_text(encoding="utf-8")
+    )
+    assert result[0]["Result"] == "Error"
+
+
+def test_set_unknown_target_reports_error(http_server, dirs, tmp_path):
+    pending, output = dirs
+    config_path = write_toml_config(tmp_path, http_server)
+    plugin = ServerMonPlugin(load_config(config_path), config_path=config_path)
+    write_command(pending, _set_command(output, "no-such-device", "match x"))
+
+    plugin.process_command_dir(pending)
+
+    result = json.loads(
+        next(iter(output.glob("700-0-*.json"))).read_text(encoding="utf-8")
+    )
+    assert result[0]["Result"] == "Error"
+
+
+def test_set_without_config_path_reports_error(http_server, dirs):
+    pending, output = dirs
+    plugin = make_plugin(http_server)  # no config_path
+    target = device_id(f"{http_server}/ok")
+    write_command(pending, _set_command(output, target, "match x"))
+
+    plugin.process_command_dir(pending)
+
+    result = json.loads(
+        next(iter(output.glob("700-0-*.json"))).read_text(encoding="utf-8")
+    )
+    assert result[0]["Result"] == "Error"
+
+
+def test_set_url_missing_from_file_reports_error(http_server, dirs, tmp_path):
+    # Device in the in-memory config but its [[urls]] entry is gone from the
+    # file: the write fails and the command reports Error (config-write gate).
+    pending, output = dirs
+    config_path = tmp_path / "servermon.toml"
+    config_path.write_text(
+        f'[[urls]]\nurl = "{http_server}/other"\n', encoding="utf-8"
+    )
+    config = Config(urls=(UrlEntry(url=f"{http_server}/ok"),), timeout_seconds=5)
+    plugin = ServerMonPlugin(config, config_path=config_path)
+    write_command(
+        pending, _set_command(output, device_id(f"{http_server}/ok"), "match x")
+    )
+
+    plugin.process_command_dir(pending)
+
+    result = json.loads(
+        next(iter(output.glob("700-0-*.json"))).read_text(encoding="utf-8")
+    )
+    assert result[0]["Result"] == "Error"
+
+
 def test_set_refresh_interval_invalid_arguments(http_server, dirs, tmp_path):
     from servermon.config import load_config
 
