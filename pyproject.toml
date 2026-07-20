@@ -44,7 +44,7 @@ packages = ["servermon"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
-addopts = "--cov=servermon --cov-report=term-missing --cov-fail-under=98"
+addopts = "--cov=servermon --cov-report=term-missing --cov-fail-under=99"
 
 # read by flake8 via the Flake8-pyproject plugin (see .pre-commit-config.yaml)
 [tool.flake8]
