@@ -15,6 +15,9 @@ as complete:
 - If you changed runtime behavior, verify it end-to-end by driving the plugin
   with a written `.command` file (README -> "Test without a Proxy Agent"), not by
   unit tests alone.
+- Bump `__version__` in [servermon/__init__.py](servermon/__init__.py) when you
+  change the code. If that file is already uncommitted with a version bump since
+  the last commit, that bump covers your change too - don't bump it again.
 
 ## Guardrails
 
