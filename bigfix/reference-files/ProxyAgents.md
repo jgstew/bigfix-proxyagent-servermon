@@ -190,8 +190,8 @@ Three keys are mandatory (the agent cannot register the device without them):
 ```
 
 - **`device id`** - any unique string, chosen and kept stable by the plugin.
-  servermon derives it deterministically (sha256 of the scheme-less URL) so no
-  identity database is needed; trask, generating random ids, needed SQLite.
+  servermon derives it deterministically (sha256 of the normalized full URL) so
+  no identity database is needed; trask, generating random ids, needed SQLite.
 - The rest of the keys feed the plugin's **inspectors** (below), plus a few
   the agent itself understands:
   - `last server communication` - the "effective device communication time";
