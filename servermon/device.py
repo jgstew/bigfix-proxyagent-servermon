@@ -24,7 +24,7 @@ DATA_SOURCE = "servermon"
 # to "Unknown" if the hostname cannot be determined.
 try:
     PLUGIN_HOST = socket.gethostname()
-except OSError:
+except OSError:  # pragma: no cover - import-time fallback, cannot re-run import
     PLUGIN_HOST = "Unknown"
 
 _SCHEME_RE = re.compile(r"^[a-z][a-z0-9+.-]*://", re.IGNORECASE)

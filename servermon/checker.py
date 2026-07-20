@@ -106,7 +106,7 @@ def check_url(entry: UrlEntry, *, timeout: float, user_agent: str) -> CheckResul
         peer_ip, tls_version, cert_expires = _connection_info(error)
         try:
             body = error.read(MAX_BODY_BYTES)
-        except OSError:
+        except OSError:  # pragma: no cover - defensive; no deterministic trigger
             body = b""
         elapsed_ms = _elapsed_ms(started)
         return _from_response(
