@@ -33,13 +33,11 @@ HOPS_EVERY_N_CHECKS = 6
 
 SET_REFRESH_INTERVAL = "set refresh interval"
 DELETE_DEVICE = "delete device"
-# "notify client <subcommand> ...": a built-in actionscript command we reuse to
-# add a new monitored URL from the console. It can target any servermon device
-# (the target is irrelevant - the URL comes from the arguments). Note: "notify
-# client" is not in ProxyPluginCommands.json, so whether the Proxy Agent
-# forwards it to the plugin is unverified (see README "Adding a URL").
-NOTIFY_CLIENT = "notify client"
-ADD_URL_SUBCOMMAND = "add-url"
+# "push link <url>": a whitelisted actionscript command (ProxyPluginCommands.json
+# lists it under "Divide Container") that we reuse to add a new monitored URL
+# from the console. It can target any servermon device - the target is
+# irrelevant, the URL to add comes from the arguments (see README "Adding a URL").
+PUSH_LINK = "push link"
 
 # Command result files use the spec-suggested "<commandID>-<PID>-<seq>.json"
 # naming so concurrently running plugin instances can never collide.
@@ -87,8 +85,8 @@ class ServerMonPlugin:
             self._process_set_refresh_interval(command)
         elif command.name == DELETE_DEVICE:
             self._process_delete_device(command)
-        elif command.name == NOTIFY_CLIENT:
-            self._process_notify_client(command)
+        elif command.name == PUSH_LINK:
+            self._process_push_link(command)
         else:
             self._process_unsupported(command)
 
@@ -292,33 +290,22 @@ class ServerMonPlugin:
         )
         _remove_command_file(command)
 
-    def _process_notify_client(self, command: Command) -> None:
-        """Actionscript "notify client add-url <url>": add a new [[urls]] entry
-        to servermon.toml.
+    def _process_push_link(self, command: Command) -> None:
+        """Actionscript "push link <url>": add a new [[urls]] entry to
+        servermon.toml.
 
         Unlike the other actions this ignores the targeted device - it may be
-        sent to any servermon device to register a brand-new URL. The URL is
-        appended to the config (and the in-memory copy, so a later refresh in
-        the same batch reports it); a duplicate or malformed URL is rejected by
-        the config writer and reported as Error. Any subcommand other than
-        add-url is Error too.
+        sent to any servermon device to register a brand-new URL. The whole
+        argument is the URL; it is appended to the config (and the in-memory
+        copy, so a later refresh in the same batch reports it). A duplicate or
+        malformed URL is rejected by the config writer and reported as Error.
         """
         outcome = "Error"
-        args = str(command.get("commandarguments")).strip().split(None, 1)
-        subcommand = args[0].lower() if args else ""
-        url = args[1].strip() if len(args) > 1 else ""
-        if subcommand != ADD_URL_SUBCOMMAND:
-            log.warning(
-                "%s: unsupported subcommand %r (only %r)",
-                NOTIFY_CLIENT,
-                subcommand,
-                ADD_URL_SUBCOMMAND,
-            )
-        elif not url:
-            log.warning("%s %s: no URL given", NOTIFY_CLIENT, ADD_URL_SUBCOMMAND)
+        url = str(command.get("commandarguments")).strip()
+        if not url:
+            log.warning("%s: no URL given", PUSH_LINK)
         elif self.config_path is None:
-            log.warning("%s %s: no config file path to update", NOTIFY_CLIENT,
-                        ADD_URL_SUBCOMMAND)
+            log.warning("%s: no config file path to update", PUSH_LINK)
         else:
             try:
                 add_url_entry(self.config_path, url)
@@ -328,11 +315,9 @@ class ServerMonPlugin:
                     self.config, urls=self.config.urls + (UrlEntry(url=url),)
                 )
                 outcome = "Completed"
-                log.info("%s %s: added %s", NOTIFY_CLIENT, ADD_URL_SUBCOMMAND, url)
+                log.info("%s: added %s", PUSH_LINK, url)
             except ConfigError as error:
-                log.warning(
-                    "%s %s failed: %s", NOTIFY_CLIENT, ADD_URL_SUBCOMMAND, error
-                )
+                log.warning("%s failed: %s", PUSH_LINK, error)
 
         _write_command_result(
             command,

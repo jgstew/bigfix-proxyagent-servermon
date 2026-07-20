@@ -778,25 +778,23 @@ def test_set_refresh_interval_command(http_server, dirs, tmp_path):
     assert not command_file.is_file()
 
 
-def _notify_add_url_command(output, target, new_url, args=None, cmd_id="600-0"):
+def _push_link_command(output, target, url, cmd_id="600-0"):
     return {
-        "commandName": "notify client",
-        "commandArguments": args if args is not None else f"add-url {new_url}",
+        "commandName": "push link",
+        "commandArguments": url,
         "outputDirectory": str(output),
         "targetDevice": target,
         "commandID": cmd_id,
     }
 
 
-def test_notify_client_add_url_appends_and_reports_completed(
-    http_server, dirs, tmp_path
-):
+def test_push_link_adds_url_and_reports_completed(http_server, dirs, tmp_path):
     pending, output = dirs
     config_path = write_toml_config(tmp_path, http_server)
     plugin = ServerMonPlugin(load_config(config_path), config_path=config_path)
     target = device_id(f"{http_server}/ok")  # any existing device works
     new_url = f"{http_server}/other"
-    write_command(pending, _notify_add_url_command(output, target, new_url))
+    write_command(pending, _push_link_command(output, target, new_url))
 
     plugin.process_command_dir(pending)
 
@@ -807,7 +805,7 @@ def test_notify_client_add_url_appends_and_reports_completed(
     assert result == [{"CommandID": "600-0", "DeviceID": target, "Result": "Completed"}]
 
 
-def test_notify_client_add_url_is_case_insensitive(http_server, dirs, tmp_path):
+def test_push_link_command_name_is_case_insensitive(http_server, dirs, tmp_path):
     pending, output = dirs
     config_path = write_toml_config(tmp_path, http_server)
     plugin = ServerMonPlugin(load_config(config_path), config_path=config_path)
@@ -816,8 +814,8 @@ def test_notify_client_add_url_is_case_insensitive(http_server, dirs, tmp_path):
     write_command(
         pending,
         {
-            "commandName": "NOTIFY CLIENT",
-            "commandArguments": f"ADD-URL {new_url}",
+            "commandName": "PUSH LINK",
+            "commandArguments": new_url,
             "outputDirectory": str(output),
             "targetDevice": target,
             "commandID": "601-0",
@@ -833,15 +831,13 @@ def test_notify_client_add_url_is_case_insensitive(http_server, dirs, tmp_path):
     assert result[0]["Result"] == "Completed"
 
 
-def test_notify_client_add_url_duplicate_reports_error(http_server, dirs, tmp_path):
+def test_push_link_duplicate_reports_error(http_server, dirs, tmp_path):
     pending, output = dirs
     config_path = write_toml_config(tmp_path, http_server)
     plugin = ServerMonPlugin(load_config(config_path), config_path=config_path)
     target = device_id(f"{http_server}/ok")
     # Adding the URL that is already configured must be rejected, unchanged.
-    write_command(
-        pending, _notify_add_url_command(output, target, f"{http_server}/ok")
-    )
+    write_command(pending, _push_link_command(output, target, f"{http_server}/ok"))
 
     plugin.process_command_dir(pending)
 
@@ -852,17 +848,12 @@ def test_notify_client_add_url_duplicate_reports_error(http_server, dirs, tmp_pa
     assert result[0]["Result"] == "Error"
 
 
-def test_notify_client_unknown_subcommand_reports_error(http_server, dirs, tmp_path):
+def test_push_link_without_url_reports_error(http_server, dirs, tmp_path):
     pending, output = dirs
     config_path = write_toml_config(tmp_path, http_server)
     plugin = ServerMonPlugin(load_config(config_path), config_path=config_path)
     target = device_id(f"{http_server}/ok")
-    write_command(
-        pending,
-        _notify_add_url_command(
-            output, target, None, args=f"do-something {http_server}/other"
-        ),
-    )
+    write_command(pending, _push_link_command(output, target, "   "))
 
     plugin.process_command_dir(pending)
 
@@ -873,34 +864,12 @@ def test_notify_client_unknown_subcommand_reports_error(http_server, dirs, tmp_p
     assert result[0]["Result"] == "Error"
 
 
-def test_notify_client_add_url_without_url_reports_error(http_server, dirs, tmp_path):
-    pending, output = dirs
-    config_path = write_toml_config(tmp_path, http_server)
-    plugin = ServerMonPlugin(load_config(config_path), config_path=config_path)
-    target = device_id(f"{http_server}/ok")
-    write_command(
-        pending, _notify_add_url_command(output, target, None, args="add-url")
-    )
-
-    plugin.process_command_dir(pending)
-
-    assert len(load_config(config_path).urls) == 1  # unchanged
-    result = json.loads(
-        next(iter(output.glob("600-0-*.json"))).read_text(encoding="utf-8")
-    )
-    assert result[0]["Result"] == "Error"
-
-
-def test_notify_client_add_url_without_config_path_reports_error(
-    http_server, dirs
-):
+def test_push_link_without_config_path_reports_error(http_server, dirs):
     # No config file path (e.g. --check style construction) -> cannot persist.
     pending, output = dirs
     plugin = make_plugin(http_server)  # constructed without config_path
     target = device_id(f"{http_server}/ok")
-    write_command(
-        pending, _notify_add_url_command(output, target, f"{http_server}/other")
-    )
+    write_command(pending, _push_link_command(output, target, f"{http_server}/other"))
 
     plugin.process_command_dir(pending)
 

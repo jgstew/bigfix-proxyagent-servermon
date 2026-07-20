@@ -263,7 +263,7 @@ def remove_url_entry(path: Path | str, url: str) -> None:
 def add_url_entry(path: Path | str, url: str) -> None:
     """Append a new ``[[urls]]`` entry to the TOML file (in-place edit).
 
-    Used by the "notify client add-url" action. Prefers the vendored tomlkit;
+    Used by the "push link" action. Prefers the vendored tomlkit;
     falls back to appending TOML text. The new text is re-parsed by
     :func:`_write_validated_config_text` before it is committed, so a duplicate
     device id or a URL that is not http(s) is rejected (``ConfigError``) and the

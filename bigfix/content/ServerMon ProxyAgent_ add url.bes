@@ -2,7 +2,7 @@
 <BES xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="BES.xsd">
 	<Task>
 		<Title>ServerMon ProxyAgent: add url</Title>
-		<Description>Add a new URL for the ServerMon ProxyAgent plugin to monitor. Can be targeted at ANY servermon device - the targeted device is irrelevant; the URL to add comes from the action script. Edit the URL in the action script before deploying. A URL that is already monitored (same normalized full URL) or is not http(s) is rejected (Result: Error). NOTE: "notify client" is not in ProxyPluginCommands.json, so whether the Proxy Agent forwards it to this plugin is unverified - test before relying on it.</Description>
+		<Description>Add a new URL for the ServerMon ProxyAgent plugin to monitor. Can be targeted at ANY servermon device - the targeted device is irrelevant; the URL to add comes from the action script. Edit the URL in the action script before deploying. A URL that is already monitored (same normalized full URL) or is not http(s) is rejected (Result: Error). Reuses the whitelisted "push link" actionscript command (ProxyPluginCommands.json, under "Divide Container") so the Proxy Agent will forward it to the plugin.</Description>
 		<Relevance>in proxy agent context</Relevance>
 		<Relevance>exists servermon version</Relevance>
 		<Category></Category>
@@ -24,7 +24,7 @@
 				<Link>here</Link>
 				<PostLink> to deploy this action.</PostLink>
 			</Description>
-			<ActionScript MIMEType="application/x-Fixlet-Windows-Shell">notify client add-url https://example.com:888</ActionScript>
+			<ActionScript MIMEType="application/x-Fixlet-Windows-Shell">push link https://example.com:888</ActionScript>
 		</DefaultAction>
 	</Task>
 </BES>
