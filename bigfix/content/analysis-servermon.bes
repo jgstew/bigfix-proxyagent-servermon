@@ -19,6 +19,8 @@ record the most recent failed check. The plugin remembers each device's last
 error in a local state file and re-sends it with every report, so transient
 errors stay visible after they clear, until the next error replaces them.
 These properties read "no error recorded" for a device that has never failed.</p>
+<h2>SSL Certificate Expirations:</h2><BR><BR>
+<?relevance tables of html concatenations of trs of tds of ("SSL Certificate for " & item 1 of it & (if item 0 of it < 0 then " expired" else " expires") & " in " & (item 0 of it as string) & " days!") of ((it / day) of (it as time - now) whose(it < 20 * day) of values of it, names of computers of it) of results of bes properties "SSL Certificate Expires"?>
 ]]></Description>
 		<Relevance>in proxy agent context</Relevance>
 		<Relevance>exists servermon version</Relevance>
