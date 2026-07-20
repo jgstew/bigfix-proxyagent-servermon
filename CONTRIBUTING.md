@@ -57,7 +57,14 @@ These come from the real Proxy Agent protocol, not from taste:
   (tomlkit or the regex fallback) is re-parsed with stdlib `tomllib` before being
   committed (`_write_validated_config_text`). Keep it that way; tomlkit can emit
   things the plugin's own loader would treat differently.
-- **Device identity is the scheme-less, trailing-slash-stripped URL** (`device.device_name` -> sha256 = `device_id`). `http://x/` and `https://x` are the same device; the config loader rejects such collisions.
+- **Device identity is the normalized full URL** (`device._normalized_url` ->
+  sha256 = `device_id`): the scheme is kept (lowercased) and a trailing slash
+  stripped, so `http://x` and `https://x` are *distinct* devices while
+  `http://x` and `http://x/` are the same one. The config loader rejects only
+  same-`device_id` collisions. The scheme-less `device_name` is just the base
+  console name; when two entries share it, `Config.display_name` disambiguates
+  them with the default port (`x:80` / `x:443`) - that resolved name is what
+  `build_report` puts in "computer name", so pass it via `computer_name=`.
 - **A refresh must always answer with a report** (even a cached replay) -
   otherwise pending actions hang (see "The action lifecycle" in
   [ProxyAgents.md](bigfix/reference-files/ProxyAgents.md)). This is why

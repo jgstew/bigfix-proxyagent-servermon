@@ -3,7 +3,8 @@ import string
 from servermon import __version__
 from servermon.checker import CheckResult
 from servermon.config import UrlEntry
-from servermon.device import build_report, device_id, device_name
+from servermon.device import (build_report, device_id, device_name,
+                              device_name_with_port)
 from servermon.state import DeviceRecord, LastError
 
 
@@ -41,12 +42,47 @@ class TestDeviceName:
         assert device_name("example.com") == "example.com"
 
 
+class TestDeviceNameWithPort:
+    def test_https_inserts_443(self):
+        assert device_name_with_port("https://example.com") == "example.com:443"
+
+    def test_http_inserts_80(self):
+        assert device_name_with_port("http://example.com") == "example.com:80"
+
+    def test_port_inserted_before_path(self):
+        assert (
+            device_name_with_port("https://example.com/health")
+            == "example.com:443/health"
+        )
+
+    def test_existing_port_kept_as_is(self):
+        # Already explicit -> nothing sensible to insert; plain name.
+        assert device_name_with_port("https://example.com:8443") == "example.com:8443"
+
+    def test_no_hostname_falls_back_to_plain_name(self):
+        assert device_name_with_port("example.com") == "example.com"
+
+    def test_unsplittable_url_falls_back_to_plain_name(self):
+        # An unclosed IPv6 bracket makes urlsplit().port raise ValueError; the
+        # name must still resolve so a failed check can report.
+        assert device_name_with_port("http://[::1") == device_name("http://[::1")
+
+
 class TestDeviceId:
     def test_stable(self):
         assert device_id("https://example.com") == device_id("https://example.com")
 
-    def test_scheme_does_not_change_identity(self):
-        assert device_id("http://example.com") == device_id("https://example.com")
+    def test_scheme_changes_identity(self):
+        # Identity is now the full URL, so http:// and https:// of the same
+        # host are distinct devices (allows monitoring both without collision).
+        assert device_id("http://example.com") != device_id("https://example.com")
+
+    def test_trailing_slash_does_not_change_identity(self):
+        # A single trailing slash is normalized away: same resource, same id.
+        assert device_id("https://example.com/") == device_id("https://example.com")
+
+    def test_scheme_case_does_not_change_identity(self):
+        assert device_id("HTTP://example.com") == device_id("http://example.com")
 
     def test_different_urls_differ(self):
         assert device_id("https://example.com") != device_id("https://example.org")
@@ -63,6 +99,22 @@ class TestBuildReport:
         assert report["device id"] == device_id("https://example.com")
         assert report["data source"] == "servermon"
         assert report["computer name"] == "example.com"
+
+    def test_computer_name_defaults_to_base_name(self):
+        report = build_report(UrlEntry(url="https://example.com"), make_result())
+        assert report["computer name"] == device_name("https://example.com")
+
+    def test_computer_name_override_used(self):
+        # The disambiguated display name (with an explicit port) is threaded
+        # in by the caller when two entries share a base name; the DNS name
+        # stays the real hostname regardless.
+        report = build_report(
+            UrlEntry(url="https://example.com"),
+            make_result(),
+            computer_name="example.com:443",
+        )
+        assert report["computer name"] == "example.com:443"
+        assert report["dns name"] == "example.com"
 
     def test_check_fields(self):
         report = build_report(UrlEntry(url="https://example.com"), make_result())

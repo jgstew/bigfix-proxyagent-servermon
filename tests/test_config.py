@@ -305,9 +305,62 @@ def test_exact_duplicate_urls_rejected_with_positions(tmp_path):
         )
 
 
-def test_duplicate_device_names_rejected(tmp_path):
-    # Same device name once the scheme is stripped -> same report file.
-    with pytest.raises(ConfigError, match="both device"):
+def test_http_and_https_same_host_accepted_and_disambiguated(tmp_path):
+    # Identity is now the full URL, so http:// and https:// of the same host
+    # are distinct devices. Their scheme-less display names would collide, so
+    # the loader disambiguates them by inserting the explicit default port.
+    config = load_config(
+        write_config(
+            tmp_path,
+            """
+            [[urls]]
+            url = "https://example.com"
+
+            [[urls]]
+            url = "http://example.com/"
+            """,
+        )
+    )
+    assert len(config.urls) == 2
+    names = {entry.url: config.display_name(entry) for entry in config.urls}
+    assert names["https://example.com"] == "example.com:443"
+    assert names["http://example.com/"] == "example.com:80"
+
+
+def test_display_name_without_collision_is_base(tmp_path):
+    config = load_config(
+        write_config(
+            tmp_path,
+            """
+            [[urls]]
+            url = "https://example.com"
+            """,
+        )
+    )
+    assert config.display_name(config.urls[0]) == "example.com"
+
+
+def test_display_name_collision_inserts_port_before_path(tmp_path):
+    config = load_config(
+        write_config(
+            tmp_path,
+            """
+            [[urls]]
+            url = "https://example.com/health"
+
+            [[urls]]
+            url = "http://example.com/health"
+            """,
+        )
+    )
+    names = {entry.url: config.display_name(entry) for entry in config.urls}
+    assert names["https://example.com/health"] == "example.com:443/health"
+    assert names["http://example.com/health"] == "example.com:80/health"
+
+
+def test_normalized_duplicate_rejected(tmp_path):
+    # Same normalized URL (differ only by a trailing slash) -> same device id.
+    with pytest.raises(ConfigError, match="same device"):
         load_config(
             write_config(
                 tmp_path,
@@ -316,7 +369,23 @@ def test_duplicate_device_names_rejected(tmp_path):
                 url = "https://example.com"
 
                 [[urls]]
-                url = "http://example.com/"
+                url = "https://example.com/"
+                """,
+            )
+        )
+
+
+def test_exact_duplicate_rejected(tmp_path):
+    with pytest.raises(ConfigError, match="exact duplicate"):
+        load_config(
+            write_config(
+                tmp_path,
+                """
+                [[urls]]
+                url = "https://example.com"
+
+                [[urls]]
+                url = "https://example.com"
                 """,
             )
         )

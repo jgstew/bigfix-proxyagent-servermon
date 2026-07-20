@@ -11,7 +11,7 @@ from typing import Any
 import tomllib
 
 from ._vendor import load_tomlkit
-from .device import device_name
+from .device import device_id, device_name, device_name_with_port
 from .util import write_text_atomic
 
 DEFAULT_TIMEOUT_SECONDS = 30.0
@@ -67,6 +67,18 @@ class Config:
         if entry.timeout_seconds is not None:
             return entry.timeout_seconds
         return self.timeout_seconds
+
+    def display_name(self, entry: UrlEntry) -> str:
+        """Console "computer name" for an entry: the scheme-less device name,
+        with the effective default port inserted when another entry shares.
+
+        that base name (so the http/https forms of one host stay
+        distinguishable). BigFix tolerates duplicate names; this just keeps
+        them legible.
+        """
+        base = device_name(entry.url)
+        collision = sum(1 for other in self.urls if device_name(other.url) == base) > 1
+        return device_name_with_port(entry.url) if collision else base
 
 
 def heartbeat_minutes(settings_path: Path | None = None) -> int:
@@ -127,13 +139,16 @@ def parse_config(raw: dict[str, Any], source: str = "<config>") -> Config:
         for i, item in enumerate(raw_urls, start=1)
     ]
 
-    # Device identity is the scheme-less name, so entries that differ only by
-    # scheme or a trailing slash would silently overwrite each other's reports.
+    # Device identity is the normalized full URL, so only entries that resolve
+    # to the same device id (identical apart from scheme case or a trailing
+    # slash) would silently overwrite each other's reports. Entries that differ
+    # only by scheme are now distinct devices; any resulting display-name clash
+    # is disambiguated by Config.display_name rather than rejected here.
     seen: dict[str, tuple[int, str]] = {}
     for index, entry in enumerate(entries, start=1):
-        name = device_name(entry.url)
-        if name in seen:
-            other_index, other_url = seen[name]
+        did = device_id(entry.url)
+        if did in seen:
+            other_index, other_url = seen[did]
             if entry.url == other_url:
                 raise ConfigError(
                     f"{source}: [[urls]] entries {other_index} and {index} are "
@@ -141,10 +156,11 @@ def parse_config(raw: dict[str, Any], source: str = "<config>") -> Config:
                 )
             raise ConfigError(
                 f"{source}: [[urls]] entry {other_index} ({other_url!r}) and "
-                f"entry {index} ({entry.url!r}) are both device {name!r}; "
+                f"entry {index} ({entry.url!r}) are the same device "
+                "(identical apart from scheme case or a trailing slash); "
                 "remove one or make the URLs distinct"
             )
-        seen[name] = (index, entry.url)
+        seen[did] = (index, entry.url)
 
     return Config(
         urls=tuple(entries),

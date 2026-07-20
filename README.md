@@ -2,7 +2,8 @@
 
 A BigFix Management Extender (Proxy Agent) plugin that monitors web servers / URLs. Each monitored URL shows up in BigFix as its own proxied device:
 
-- The **device name** is the URL with the scheme removed (`https://example.com` -> `example.com`).
+- The **device name** is the URL with the scheme removed (`https://example.com` -> `example.com`). If two monitored URLs would share that name (e.g. the http:// and https:// forms of one host), each is disambiguated with its default port (`example.com:443` and `example.com:80`).
+- The **device identity** is the full URL, so `http://example.com` and `https://example.com` are two independent devices with separate history. URLs that differ only by scheme case or a trailing slash are treated as the same device.
 - The **last report time** is the last time the URL actually responded, so a dead URL shows a visibly stale Last Report Time while its properties keep updating.
 - The **operating system** column shows the web server's `Server` header when available (e.g. `nginx/1.25.3`).
 - Virtual inspectors expose the **HTTP response code**, a **detailed check result string**, and more to analyses.

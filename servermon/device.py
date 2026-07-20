@@ -31,8 +31,57 @@ _SCHEME_RE = re.compile(r"^[a-z][a-z0-9+.-]*://", re.IGNORECASE)
 
 
 def device_name(url: str) -> str:
-    """Device name shown in the BigFix console: the URL without its scheme."""
+    """Device name shown in the BigFix console: the URL without its scheme.
+
+    This is the *base* name; when two configured URLs share it (e.g. the
+    http:// and https:// forms of one host), the config loader disambiguates
+    them for display with :func:`device_name_with_port` - see
+    ``Config.display_name``.
+    """
     return _SCHEME_RE.sub("", url.strip()).rstrip("/")
+
+
+def device_name_with_port(url: str) -> str:
+    """The device name with the effective default port made explicit.
+
+    So the http:// and https:// forms of one host are distinguishable in the
+    console: http -> ``:80``, https -> ``:443``. The port is inserted right
+    after the host (before any path/query/fragment), matching how a URL would
+    normally spell an explicit port. Falls back to the plain
+    :func:`device_name` when the URL cannot be split or already carries a port.
+    """
+    try:
+        parts = urlsplit(url.strip())
+        hostname = parts.hostname
+        port = parts.port
+    except ValueError:
+        return device_name(url)
+    if hostname is None or port is not None:
+        return device_name(url)
+    default_port = 443 if parts.scheme.lower() == "https" else 80
+    base = device_name(url)
+    # The netloc runs to the first path/query/fragment delimiter; the port
+    # belongs at its end (after any user@host), so splice it in there.
+    cut = len(base)
+    for i, char in enumerate(base):
+        if char in "/?#":
+            cut = i
+            break
+    return f"{base[:cut]}:{default_port}{base[cut:]}"
+
+
+def _normalized_url(url: str) -> str:
+    """Canonical form used for device identity: scheme lowercased and a
+    trailing slash removed.
+
+    Keeps http:// vs https:// distinct while treating
+    ``http://x`` and ``http://x/`` as the same resource.
+    """
+    url = url.strip()
+    match = _SCHEME_RE.match(url)
+    if match:
+        url = match.group(0).lower() + url[match.end():]
+    return url.rstrip("/")
 
 
 def _url_hostname(url: str) -> str | None:
@@ -48,11 +97,12 @@ def _url_hostname(url: str) -> str | None:
 def device_id(url: str) -> str:
     """Stable device id for a monitored URL, used as the report file name.
 
-    Keyed on the scheme-less device name so that switching a URL between
-    http:// and https:// keeps the same device identity (and history) in
-    BigFix.
+    Keyed on the normalized full URL (scheme included), so the http:// and
+    https:// forms of one host are distinct devices with independent history.
+    Only differences that do not change the resource - scheme case, a trailing
+    slash - are normalized away (see :func:`_normalized_url`).
     """
-    return hashlib.sha256(device_name(url).encode("utf-8")).hexdigest()
+    return hashlib.sha256(_normalized_url(url).encode("utf-8")).hexdigest()
 
 
 def build_report(
@@ -61,17 +111,24 @@ def build_report(
     sequence: int | None = None,
     device_state: DeviceRecord | None = None,
     default_interval: int | None = None,
+    computer_name: str | None = None,
 ) -> dict[str, Any]:
     """Build the device report written to ``<device id>.report``.
 
     "device id", "data source", and "computer name" are the keys the Proxy
     Agent requires; the rest become relevance-inspectable device properties
     declared in Inspectors/servermon.inspectors.
+
+    ``computer_name`` is the console display name; callers pass the
+    collision-disambiguated name from ``Config.display_name``. When omitted it
+    defaults to the plain :func:`device_name`.
     """
     report: dict[str, Any] = {
         "device id": device_id(entry.url),
         "data source": DATA_SOURCE,
-        "computer name": device_name(entry.url),
+        "computer name": (
+            computer_name if computer_name is not None else device_name(entry.url)
+        ),
         # Reserved-property inspectors from the proxy agent's built-in
         # inspector list, filled with the closest URL-device equivalents:
         # the "OS" is the web server software (Server header), its version

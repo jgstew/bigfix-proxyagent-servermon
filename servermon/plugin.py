@@ -468,6 +468,7 @@ class ServerMonPlugin:
                 sequence=sequence,
                 device_state=device_state,
                 default_interval=self.default_interval,
+                computer_name=self.config.display_name(entry),
             )
             # Cache the report so refreshes within this URL's check interval
             # can re-submit it without a new HTTP check.

@@ -138,7 +138,7 @@ repos:
           (?x)^(
               README.md|
               pyproject.toml|
-              src/validate_bes_xml/__init__.py|
+              servermon/__init__.py|
               setup.cfg|
               setup.py
           )$
