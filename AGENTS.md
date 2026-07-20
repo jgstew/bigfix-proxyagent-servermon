@@ -5,6 +5,21 @@ how it deploys) and [CONTRIBUTING.md](CONTRIBUTING.md) (dev workflow, module map
 invariants, testing) first - this file does not repeat them, it only states the
 imperatives an agent must follow that those docs describe descriptively.
 
+## Test-driven development
+
+Work test-first. For each behavior change:
+
+- Write the failing test **before** the code that satisfies it.
+- Run it and confirm it fails for the expected reason *before* changing the code
+  (a test that passes before your change proves nothing).
+- Then write the code and confirm the same test passes, with the rest of the
+  suite still green.
+
+If a test turns out to be wrong - it encoded a mistaken assumption about how the
+code should behave - fixing the test is allowed, but **call it out explicitly**:
+say which test changed and why the original assertion was incorrect, so a
+reviewer can tell a corrected assumption from a silently weakened test.
+
 ## Definition of done
 
 There is no CI to catch a regression after you stop. Before treating any change
