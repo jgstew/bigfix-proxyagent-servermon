@@ -8,8 +8,8 @@ deployment; where the modern agent differs from the older public docs
 [Outdated Proxy Agent Doc](https://gist.github.com/dexdexdex/ecfead7a748993ce9715) ),
 the differences are called out.
 
-For servermon-specific usage see [README.md](README.md); for developing this
-codebase see [CONTRIBUTING.md](CONTRIBUTING.md).
+For servermon-specific usage see [README.md](../../README.md); for developing this
+codebase see [CONTRIBUTING.md](../../CONTRIBUTING.md).
 
 ## The big picture
 
@@ -235,7 +235,7 @@ a report makes `exists <phrase>` false - servermon uses that for
 "no error recorded" semantics. Content should guard with
 `in proxy agent context AND exists <plugin-specific inspector>` so it is never
 relevant on real BES clients (see
-[bigfix/content/analysis-servermon.bes](bigfix/content/analysis-servermon.bes)).
+[bigfix/content/analysis-servermon.bes](../content/analysis-servermon.bes)).
 
 > **Note - prefer the standard inspectors.** Beyond whatever custom relevance a
 > plugin defines, a plugin should also try to fill in as many of the
