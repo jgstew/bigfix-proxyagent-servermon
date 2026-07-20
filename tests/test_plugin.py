@@ -986,11 +986,49 @@ def test_set_invalid_value_reports_error(http_server, dirs, tmp_path):
     assert result[0]["Result"] == "Error"
 
 
+def test_set_empty_value_clears_option(http_server, dirs, tmp_path):
+    pending, output = dirs
+    config_path = tmp_path / "servermon.toml"
+    config_path.write_text(
+        f'[[urls]]\nurl = "{http_server}/ok"\nmatch = "hello"\n', encoding="utf-8"
+    )
+    plugin = ServerMonPlugin(load_config(config_path), config_path=config_path)
+    target = device_id(f"{http_server}/ok")
+    write_command(pending, _set_command(output, target, "match"))  # no value -> clear
+
+    plugin.process_command_dir(pending)
+
+    assert load_config(config_path).urls[0].match is None
+    result = json.loads(
+        next(iter(output.glob("700-0-*.json"))).read_text(encoding="utf-8")
+    )
+    assert result[0]["Result"] == "Completed"
+
+
+def test_set_empty_value_clears_bool_back_to_default(http_server, dirs, tmp_path):
+    pending, output = dirs
+    config_path = tmp_path / "servermon.toml"
+    config_path.write_text(
+        f'[[urls]]\nurl = "{http_server}/ok"\nverify_tls = false\n', encoding="utf-8"
+    )
+    plugin = ServerMonPlugin(load_config(config_path), config_path=config_path)
+    target = device_id(f"{http_server}/ok")
+    # Trailing whitespace only still counts as "no value" -> clear.
+    write_command(pending, _set_command(output, target, "verify_tls   "))
+
+    plugin.process_command_dir(pending)
+
+    assert load_config(config_path).urls[0].verify_tls is True  # default restored
+    result = json.loads(
+        next(iter(output.glob("700-0-*.json"))).read_text(encoding="utf-8")
+    )
+    assert result[0]["Result"] == "Completed"
+
+
 @pytest.mark.parametrize(
     "args",
     [
         "verify_tls maybe",  # not a boolean
-        "match",  # no regex given
         "match [unclosed",  # not a valid regex
     ],
 )

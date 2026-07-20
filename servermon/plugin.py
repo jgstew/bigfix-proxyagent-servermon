@@ -8,7 +8,7 @@ import logging
 import os
 import re
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import replace
+from dataclasses import fields, replace
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -17,7 +17,7 @@ from . import __version__
 from .checker import CheckResult, check_url, measure_network_hops
 from .command import Command, CommandError
 from .config import (Config, ConfigError, UrlEntry, add_url_entry,
-                     heartbeat_minutes, remove_url_entry,
+                     clear_url_option, heartbeat_minutes, remove_url_entry,
                      set_url_check_interval, set_url_option)
 from .device import build_report, device_id, device_name
 from .state import DeviceState
@@ -261,41 +261,24 @@ class ServerMonPlugin:
         Supported fields mirror the config keys: match, no_match,
         timeout_seconds, check_interval_minutes, verify_tls,
         measure_network_hops. The value is validated for the field's type
-        before writing; an unknown field, a bad value, an unknown device, or a
-        write that would not parse reports Error.
+        before writing; an empty value clears the field (reverts it to its
+        default). An unknown field, a bad value, an unknown device, or a write
+        that would not parse reports Error.
         """
         outcome = "Error"
         entries = self._match_target(command.target_device, command.target_hint)
         field, _, raw = str(command.get("commandarguments")).strip().partition(" ")
         field = field.lower()
-        parser = _SETTABLE_FIELDS.get(field)
-        value = parser(raw) if parser is not None else None
+        raw = raw.strip()
         if not entries:
             log.warning("%s: no URL in config for device %r", SET,
                         command.target_device)
-        elif parser is None:
+        elif field not in _SETTABLE_FIELDS:
             log.warning("%s: unsupported field %r", SET, field)
-        elif value is None:
-            log.warning("%s %s: invalid value %r", SET, field, raw.strip())
         elif self.config_path is None:
             log.warning("%s: no config file path to update", SET)
         else:
-            try:
-                set_url_option(self.config_path, entries[0].url, field, value)
-                # Update the in-memory config so a later command/refresh in this
-                # same invocation sees the new value.
-                self.config = replace(
-                    self.config,
-                    urls=tuple(
-                        replace(entries[0], **{field: value})
-                        if e is entries[0] else e
-                        for e in self.config.urls
-                    ),
-                )
-                outcome = "Completed"
-                log.info("%s: %s = %r for %s", SET, field, value, entries[0].url)
-            except ConfigError as error:
-                log.warning("%s %s failed: %s", SET, field, error)
+            outcome = self._apply_set(entries[0], field, raw)
 
         _write_command_result(
             command,
@@ -308,6 +291,41 @@ class ServerMonPlugin:
             ],
         )
         _remove_command_file(command)
+
+    def _apply_set(self, entry: UrlEntry, field: str, raw: str) -> str:
+        """Set (non-empty value) or clear (empty value) one option on ``entry``
+        in the config file and in memory; return the command Result string.
+        """
+        clearing = raw == ""
+        if clearing:
+            new_value = _URL_ENTRY_DEFAULTS[field]
+        else:
+            new_value = _SETTABLE_FIELDS[field](raw)
+            if new_value is None:
+                log.warning("%s %s: invalid value %r", SET, field, raw)
+                return "Error"
+        try:
+            if clearing:
+                clear_url_option(self.config_path, entry.url, field)
+            else:
+                set_url_option(self.config_path, entry.url, field, new_value)
+        except ConfigError as error:
+            log.warning("%s %s failed: %s", SET, field, error)
+            return "Error"
+        # Update the in-memory config so a later command/refresh in this same
+        # invocation sees the new value.
+        self.config = replace(
+            self.config,
+            urls=tuple(
+                replace(e, **{field: new_value}) if e is entry else e
+                for e in self.config.urls
+            ),
+        )
+        if clearing:
+            log.info("%s: cleared %s for %s", SET, field, entry.url)
+        else:
+            log.info("%s: %s = %r for %s", SET, field, new_value, entry.url)
+        return "Completed"
 
     def _process_delete_device(self, command: Command) -> None:
         """Actionscript "delete device": stop monitoring the targeted URL.
@@ -668,14 +686,12 @@ def _parse_bool(text: str) -> bool | None:
 
 
 def _parse_regex(text: str) -> str | None:
-    text = text.strip()
-    if not text:
-        return None
+    # Called only with a non-empty value (the handler routes empty to "clear").
     try:
-        re.compile(text)
+        re.compile(text.strip())
     except re.error:
         return None
-    return text
+    return text.strip()
 
 
 # "set <field> <value>" fields, mapped to a parser turning the raw argument
@@ -687,6 +703,12 @@ _SETTABLE_FIELDS = {
     "check_interval_minutes": _parse_positive_int,
     "verify_tls": _parse_bool,
     "measure_network_hops": _parse_bool,
+}
+
+# Each settable field's UrlEntry default, restored when "set <field>" is given
+# with no value (clearing the option).
+_URL_ENTRY_DEFAULTS = {
+    f.name: f.default for f in fields(UrlEntry) if f.name in _SETTABLE_FIELDS
 }
 
 

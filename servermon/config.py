@@ -254,6 +254,22 @@ def set_url_check_interval(path: Path | str, url: str, minutes: int) -> None:
     set_url_option(path, url, "check_interval_minutes", minutes)
 
 
+def clear_url_option(path: Path | str, url: str, key: str) -> None:
+    """Remove ``key`` from one ``[[urls]]`` entry, reverting it to its default,
+    by editing the TOML file in place (comments and formatting preserved).
+
+    Used by "set <field>" with no value. A no-op if the key is already absent;
+    raises ConfigError if the entry cannot be found or the result would not
+    parse.
+    """
+    path = Path(path)
+    tomlkit = load_tomlkit()
+    if tomlkit is not None:
+        _edit_with_tomlkit(path, url, tomlkit, lambda table: table.pop(key, None))
+    else:
+        _clear_url_option_regex(path, url, key)
+
+
 def remove_url_entry(path: Path | str, url: str) -> None:
     """Remove one ``[[urls]]`` entry from the TOML file (in-place edit).
 
@@ -380,6 +396,27 @@ def _set_url_option_regex(path: Path, url: str, key: str, value: object) -> None
         lines.insert(url_index + 1, new_line)
 
     _write_validated_config(path, lines)
+
+
+def _clear_url_option_regex(path: Path, url: str, key: str) -> None:
+    """Tomlkit-free fallback for :func:`clear_url_option`."""
+    lines = _read_config_lines(path)
+    url_index = _find_url_line(lines, url, path)
+    end = next(
+        (
+            i
+            for i in range(url_index + 1, len(lines))
+            if _TABLE_HEADER_RE.match(lines[i])
+        ),
+        len(lines),
+    )
+    key_re = re.compile(rf"^\s*{re.escape(key)}\s*=")
+    kept = [
+        line
+        for i, line in enumerate(lines)
+        if not (url_index < i < end and key_re.match(line))
+    ]
+    _write_validated_config(path, kept)
 
 
 def _toml_literal(value: object) -> str:
