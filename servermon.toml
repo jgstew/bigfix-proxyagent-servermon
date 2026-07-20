@@ -23,10 +23,25 @@ match = "Example Domain"
 # no_match = "could not connect to( the)? database"
 
 [[urls]]
-url = "https://forum.bigfix.com"
+url = "https://forum.bigfix.com/login"
+check_interval_minutes = 360
+match = "an account"
 
 [[urls]]
 url = "https://localhost:44444/fake.html"
+
+[[urls]]
+url = "http://localhost:888/"
+check_interval_minutes = 30
+match = "enter your username and password"
+measure_network_hops = true
+
+[[urls]]
+url = "https://localhost/login"
+check_interval_minutes = 30
+no_match = "Could not connect to the BigFix database"
+verify_tls = false
+measure_network_hops = true
 
 # [[urls]]
 # url = "https://internal.example.local:8443/health"
