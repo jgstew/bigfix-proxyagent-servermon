@@ -5,8 +5,11 @@ from __future__ import annotations
 import http.server
 import socket
 import threading
+import time
 
 import pytest
+
+from servermon.checker import MAX_BODY_BYTES
 
 
 class _Handler(http.server.BaseHTTPRequestHandler):
@@ -36,6 +39,35 @@ class _Handler(http.server.BaseHTTPRequestHandler):
             body = b"flaky ok" if type(self).flaky_hits > 1 else b"flaky failure"
             self.send_response(200 if type(self).flaky_hits > 1 else 500)
             self.send_header("Content-Type", "text/plain")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+        elif self.path == "/slow":
+            # Accepts the connection but stalls the response, to test that a
+            # too-slow server surfaces as a timeout error, not a hang.
+            time.sleep(2)
+            try:
+                body = b"finally"
+                self.send_response(200)
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+            except OSError:
+                pass  # client gave up long ago
+        elif self.path == "/big":
+            # MAX_BODY_BYTES of filler, then a needle the byte cap must hide.
+            body = b"x" * MAX_BODY_BYTES + b"needle-beyond-cap"
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+        elif self.path == "/latin":
+            # Declares a charset Python does not know, to test the decode
+            # fallback path.
+            body = b"gr\xfcn body-needle"  # latin-1 bytes, invalid as UTF-8
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain; charset=klingon-piqad")
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)

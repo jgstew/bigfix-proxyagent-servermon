@@ -6,6 +6,15 @@ from servermon import cli
 from servermon.cli import main
 
 
+@pytest.fixture(autouse=True)
+def isolated_runtime_files(tmp_path, monkeypatch):
+    """Keep main() from writing the repo's real state file and log file
+    (their defaults live next to the plugin, not in a temp dir).
+    """
+    monkeypatch.setattr(cli, "DEFAULT_STATE_FILE", tmp_path / "state.json")
+    monkeypatch.setattr(cli, "DEFAULT_LOG_FILE", tmp_path / "servermon.log")
+
+
 @pytest.fixture
 def config_file(tmp_path, http_server):
     path = tmp_path / "servermon.toml"
@@ -46,8 +55,16 @@ def test_check_reports_each_url(config_file, capsys):
     assert "FAILED: HTTP 404" in out
 
 
+def test_check_all_ok_exits_zero(tmp_path, http_server, capsys):
+    path = tmp_path / "servermon.toml"
+    path.write_text(f'[[urls]]\nurl = "{http_server}/ok"\n', encoding="utf-8")
+    assert main(["--config", str(path), "--check"]) == 0
+    assert "OK: HTTP 200" in capsys.readouterr().out
+
+
 def test_check_json_outputs_device_reports(config_file, capsys):
-    main(["--config", str(config_file), "--check", "--json"])
+    # Exit code 1: JSON output does not change the failure signal.
+    assert main(["--config", str(config_file), "--check", "--json"]) == 1
     reports = json.loads(capsys.readouterr().out)
     assert len(reports) == 2
     assert {report["http check"]["response code"] for report in reports} == {200, 404}

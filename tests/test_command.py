@@ -78,6 +78,28 @@ def test_missing_output_directory(tmp_path):
         Command.load(path)
 
 
+def test_missing_command_name(tmp_path):
+    path = write_command(tmp_path, {"OutputDirectory": "/tmp/out"})
+    with pytest.raises(CommandError, match="commandname"):
+        Command.load(path)
+
+
+def test_empty_required_value_counts_as_missing(tmp_path):
+    # An empty targetDevice would make every downstream lookup fail silently,
+    # so it must be rejected like an absent key.
+    path = write_command(
+        tmp_path,
+        {
+            "CommandName": "locate",
+            "OutputDirectory": "/tmp/out",
+            "TargetDevice": "",
+            "CommandID": "1",
+        },
+    )
+    with pytest.raises(CommandError, match="targetdevice"):
+        Command.load(path)
+
+
 def test_invalid_json(tmp_path):
     path = tmp_path / "bad.json"
     path.write_text("{not json", encoding="utf-8")

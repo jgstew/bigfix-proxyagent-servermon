@@ -171,6 +171,48 @@ def test_save_without_path_is_noop():
     DeviceState().save()  # must not raise
 
 
+def test_save_failure_is_logged_not_fatal(tmp_path, caplog):
+    import logging
+
+    # The state path is a directory, so the atomic rename must fail; losing
+    # history must not break monitoring itself.
+    path = tmp_path / "state.json"
+    path.mkdir()
+    state = DeviceState(path)
+    state.record("dev1", make_result(False, "FAILED: HTTP 500 (1 ms)"))
+
+    with caplog.at_level(logging.WARNING, logger="servermon.state"):
+        state.save()  # must not raise
+    assert any("could not write state file" in r.message for r in caplog.records)
+
+
+def test_malformed_state_entries_are_dropped(tmp_path):
+    # Hand-edited or partially corrupted entries must be sanitized on load
+    # rather than poisoning later reports.
+    path = tmp_path / "state.json"
+    path.write_text(
+        json.dumps(
+            {
+                "not-a-dict": "junk",
+                "bad-error": {"last error": {"detail": 5}},
+                "bool-hops": {"network hops": True},
+                "good": {"last contact": "Fri, 17 Jul 2026 07:00:00 -0400"},
+            }
+        ),
+        encoding="utf-8",
+    )
+    state = DeviceState(path)
+    ok = make_result(True, "OK: HTTP 200 OK (1 ms)")
+    assert state.record("not-a-dict", ok).last_error is None
+    assert state.record("bad-error", ok).last_error is None
+    assert state.record("bool-hops", ok).network_hops is None
+    # A no-response result leaves contact untouched: the valid entry survived.
+    dead = make_result(False, "ERROR: no HTTP response: refused", status_code=0)
+    assert state.record("good", dead).last_contact == (
+        "Fri, 17 Jul 2026 07:00:00 -0400"
+    )
+
+
 def test_store_report_strips_sequence_and_round_trips(tmp_path):
     path = tmp_path / "state.json"
     report = {

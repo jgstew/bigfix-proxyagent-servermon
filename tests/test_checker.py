@@ -180,6 +180,58 @@ def test_unresolvable_host():
     assert result.detail.startswith("ERROR:")
 
 
+def test_timeout_is_an_error_not_a_hang(http_server):
+    # /slow stalls for 2s; with a 0.25s timeout the check must come back
+    # quickly as a status-0 error.
+    entry = UrlEntry(url=f"{http_server}/slow")
+    result = check_url(entry, timeout=0.25, user_agent="servermon-tests")
+    assert result.status_code == 0
+    assert result.success is False
+    assert result.detail.startswith("ERROR: no HTTP response")
+    assert result.response_time_ms < 2000  # gave up, did not wait out /slow
+
+
+def test_https_against_plain_http_server_is_error(http_server):
+    # TLS handshake against a plain-HTTP port fails even with verification
+    # off; must degrade to a status-0 error, never raise.
+    url = http_server.replace("http://", "https://") + "/ok"
+    result = check(url, verify_tls=False)
+    assert result.status_code == 0
+    assert result.success is False
+    assert result.detail.startswith("ERROR:")
+
+
+def test_match_beyond_body_cap_not_found(http_server):
+    # The needle sits after MAX_BODY_BYTES; the cap must hide it so a huge
+    # response cannot stall the refresh (documents the 1 MiB scan limit).
+    result = check(f"{http_server}/big", match="needle-beyond-cap")
+    assert result.status_code == 200
+    assert result.match_found is False
+    assert result.success is False
+
+
+def test_match_within_body_cap_found(http_server):
+    # Positive control for the cap test: filler inside the cap is found.
+    result = check(f"{http_server}/big", match="xxxx")
+    assert result.match_found is True
+
+
+def test_unknown_charset_falls_back_to_utf8(http_server):
+    # The server declares charset=klingon-piqad; decode must fall back to
+    # UTF-8 (with replacement) instead of raising, and still find the match.
+    result = check(f"{http_server}/latin", match="body-needle")
+    assert result.success is True
+    assert result.match_found is True
+
+
+def test_no_match_undetermined_on_connection_failure(closed_port_url):
+    # With no response there is nothing to scan: bad_string_found stays None
+    # (undetermined) rather than claiming the bad string was absent.
+    result = check(closed_port_url, no_match="anything")
+    assert result.status_code == 0
+    assert result.bad_string_found is None
+
+
 @pytest.fixture
 def fresh_ssl_context_cache():
     _build_ssl_context.cache_clear()

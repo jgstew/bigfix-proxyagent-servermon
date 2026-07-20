@@ -579,6 +579,58 @@ def test_set_refresh_interval_invalid_arguments(http_server, dirs, tmp_path):
     assert load_config(config_path).urls[0].check_interval_minutes is None
 
 
+def test_set_refresh_interval_unknown_target(http_server, dirs, tmp_path):
+    from servermon.config import load_config
+
+    pending, output = dirs
+    config_path = write_toml_config(tmp_path, http_server)
+    plugin = ServerMonPlugin(load_config(config_path), config_path=config_path)
+    write_command(
+        pending,
+        {
+            "commandName": "set refresh interval",
+            "commandArguments": "120",
+            "outputDirectory": str(output),
+            "targetDevice": "no-such-device",
+            "commandID": "558-0",
+        },
+    )
+
+    plugin.process_command_dir(pending)
+
+    result = json.loads(
+        next(iter(output.glob("558-0-*.json"))).read_text(encoding="utf-8")
+    )
+    assert result[0]["Result"] == "Error"
+    assert load_config(config_path).urls[0].check_interval_minutes is None
+
+
+def test_set_refresh_interval_rejects_zero(http_server, dirs, tmp_path):
+    from servermon.config import load_config
+
+    pending, output = dirs
+    config_path = write_toml_config(tmp_path, http_server)
+    plugin = ServerMonPlugin(load_config(config_path), config_path=config_path)
+    write_command(
+        pending,
+        {
+            "commandName": "set refresh interval",
+            "commandArguments": "0",
+            "outputDirectory": str(output),
+            "targetDevice": device_id(f"{http_server}/ok"),
+            "commandID": "559-0",
+        },
+    )
+
+    plugin.process_command_dir(pending)
+
+    result = json.loads(
+        next(iter(output.glob("559-0-*.json"))).read_text(encoding="utf-8")
+    )
+    assert result[0]["Result"] == "Error"
+    assert load_config(config_path).urls[0].check_interval_minutes is None
+
+
 def test_set_refresh_interval_without_config_path(http_server, dirs):
     pending, output = dirs
     plugin = make_plugin(http_server)  # no config_path
@@ -746,6 +798,28 @@ def test_delete_device_last_entry_leaves_valid_config(http_server, dirs, tmp_pat
     assert load_config(config_path).urls == ()
 
 
+def test_delete_device_without_config_path(http_server, dirs):
+    pending, output = dirs
+    plugin = make_plugin(http_server)  # no config_path to edit
+    target = device_id(f"{http_server}/ok")
+    write_command(
+        pending,
+        {
+            "commandName": "delete device",
+            "outputDirectory": str(output),
+            "targetDevice": target,
+            "commandID": "781-0",
+        },
+    )
+
+    plugin.process_command_dir(pending)
+
+    result = json.loads(
+        next(iter(output.glob("781-0-*.json"))).read_text(encoding="utf-8")
+    )
+    assert result[0]["Result"] == "Error"
+
+
 def test_delete_device_unknown_target(http_server, dirs, tmp_path):
     pending, output = dirs
     config_path = write_two_url_config(tmp_path, http_server)
@@ -812,6 +886,27 @@ def test_missing_command_dir_raises(http_server, tmp_path):
     plugin = make_plugin(http_server)
     with pytest.raises(FileNotFoundError):
         plugin.process_command_dir(tmp_path / "nope")
+
+
+def test_report_write_failure_leaves_command_for_retry(http_server, dirs, tmp_path):
+    """If writing a report fails, the refresh must raise *before* consuming
+    the command file, so the next invocation retries it.
+    """
+    pending, _ = dirs
+    plugin = make_plugin(http_server)
+    blocker = tmp_path / "not-a-directory"
+    blocker.write_text("", encoding="utf-8")
+    command_file = write_command(
+        pending,
+        # The output directory has a regular file as a path component, so
+        # creating it (and writing any report) must fail.
+        {"CommandName": "refresh", "OutputDirectory": str(blocker / "reports")},
+    )
+
+    with pytest.raises(OSError):
+        plugin.process_command_dir(pending)
+
+    assert command_file.is_file()  # left in place for the retry
 
 
 def test_report_contains_connect_time(http_server, dirs):

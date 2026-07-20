@@ -322,6 +322,139 @@ def test_duplicate_device_names_rejected(tmp_path):
         )
 
 
+def test_settings_must_be_a_table(tmp_path):
+    with pytest.raises(ConfigError, match=r"\[settings\] must be a table"):
+        load_config(
+            write_config(
+                tmp_path,
+                """
+                settings = "oops"
+
+                [[urls]]
+                url = "https://example.com"
+                """,
+            )
+        )
+
+
+def test_urls_entry_must_be_a_table(tmp_path):
+    with pytest.raises(ConfigError, match="must be a table"):
+        load_config(write_config(tmp_path, 'urls = ["https://example.com"]\n'))
+
+
+def test_empty_user_agent_rejected(tmp_path):
+    with pytest.raises(ConfigError, match="user_agent"):
+        load_config(
+            write_config(
+                tmp_path,
+                """
+                [settings]
+                user_agent = ""
+
+                [[urls]]
+                url = "https://example.com"
+                """,
+            )
+        )
+
+
+def test_verify_tls_must_be_boolean(tmp_path):
+    with pytest.raises(ConfigError, match="verify_tls"):
+        load_config(
+            write_config(
+                tmp_path,
+                """
+                [[urls]]
+                url = "https://example.com"
+                verify_tls = "no"
+                """,
+            )
+        )
+
+
+def test_measure_network_hops_must_be_boolean(tmp_path):
+    with pytest.raises(ConfigError, match="measure_network_hops"):
+        load_config(
+            write_config(
+                tmp_path,
+                """
+                [[urls]]
+                url = "https://example.com"
+                measure_network_hops = 1
+                """,
+            )
+        )
+
+
+def test_empty_match_rejected(tmp_path):
+    with pytest.raises(ConfigError, match="'match' must be a non-empty string"):
+        load_config(
+            write_config(
+                tmp_path,
+                """
+                [[urls]]
+                url = "https://example.com"
+                match = ""
+                """,
+            )
+        )
+
+
+def test_bad_per_url_timeout_rejected(tmp_path):
+    with pytest.raises(ConfigError, match="'timeout_seconds'"):
+        load_config(
+            write_config(
+                tmp_path,
+                """
+                [[urls]]
+                url = "https://example.com"
+                timeout_seconds = 0
+                """,
+            )
+        )
+
+
+def test_check_interval_boolean_rejected(tmp_path):
+    # TOML "true" parses as a Python bool, which would pass a naive int
+    # check; it must still be rejected.
+    with pytest.raises(ConfigError, match="check_interval_minutes"):
+        load_config(
+            write_config(
+                tmp_path,
+                """
+                [[urls]]
+                url = "https://example.com"
+                check_interval_minutes = true
+                """,
+            )
+        )
+
+
+def test_heartbeat_minutes_rejects_bad_values(tmp_path):
+    from servermon.config import DEFAULT_HEARTBEAT_MINUTES, heartbeat_minutes
+
+    cases = [
+        '{"DeviceReportRefreshIntervalMinutes": true}',  # bool is not an int
+        '{"DeviceReportRefreshIntervalMinutes": 0}',  # below minimum
+        '{"DeviceReportRefreshIntervalMinutes": "15"}',  # string is not an int
+        "{not json",
+    ]
+    for i, content in enumerate(cases):
+        settings = tmp_path / f"settings-{i}.json"
+        settings.write_text(content, encoding="utf-8")
+        assert heartbeat_minutes(settings) == DEFAULT_HEARTBEAT_MINUTES, content
+
+
+def test_set_url_check_interval_missing_file(tmp_path, write_backend):
+    with pytest.raises(ConfigError, match="cannot read"):
+        set_url_check_interval(tmp_path / "nope.toml", "https://one.example.com", 60)
+
+
+def test_remove_url_entry_missing_file(tmp_path, write_backend):
+    with pytest.raises(ConfigError, match="cannot read"):
+        remove_url_entry(tmp_path / "nope.toml", "https://one.example.com")
+
+
 def test_bad_timeout_rejected(tmp_path):
     with pytest.raises(ConfigError, match="timeout_seconds"):
         load_config(
