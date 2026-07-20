@@ -1,6 +1,7 @@
 
 DeviceReports/
 LastScanTime.json
+PendingCommands/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
