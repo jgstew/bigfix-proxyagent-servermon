@@ -236,3 +236,44 @@ def test_plugin_ca_bundle_loaded_when_present(
     with caplog.at_level(logging.INFO, logger="servermon.checker"):
         _ssl_context(True)
     assert any("plugin ca-bundle.pem" in r.message for r in caplog.records)
+
+
+class TestConnectTime:
+    def test_connect_time_measured_on_success(self, http_server):
+        result = check(f"{http_server}/ok")
+        assert isinstance(result.connect_time_ms, int)
+        assert 0 <= result.connect_time_ms <= result.response_time_ms
+
+    def test_connect_time_measured_on_http_error(self, http_server):
+        result = check(f"{http_server}/error")
+        assert isinstance(result.connect_time_ms, int)
+
+    def test_connect_time_none_when_unresolvable(self):
+        result = check("http://nonexistent.invalid")
+        assert result.status_code == 0
+        assert result.connect_time_ms is None
+
+
+class TestMeasureNetworkHops:
+    def test_loopback_is_one_hop(self, http_server):
+        hops = servermon.checker.measure_network_hops(
+            f"{http_server}/ok", timeout=5
+        )
+        assert hops == 1
+
+    def test_connection_refused_still_measures(self):
+        # An RST from a closed port proves the packet reached the host, so
+        # loopback measures 1 hop even with nothing listening.
+        hops = servermon.checker.measure_network_hops(
+            "http://127.0.0.1:1", timeout=5
+        )
+        assert hops == 1
+
+    def test_unresolvable_returns_none(self):
+        hops = servermon.checker.measure_network_hops(
+            "http://nonexistent.invalid", timeout=1
+        )
+        assert hops is None
+
+    def test_never_raises_on_garbage_url(self):
+        assert servermon.checker.measure_network_hops("http://", timeout=1) is None

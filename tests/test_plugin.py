@@ -812,3 +812,121 @@ def test_missing_command_dir_raises(http_server, tmp_path):
     plugin = make_plugin(http_server)
     with pytest.raises(FileNotFoundError):
         plugin.process_command_dir(tmp_path / "nope")
+
+
+def test_report_contains_connect_time(http_server, dirs):
+    pending, output = dirs
+    plugin = make_plugin(http_server)
+    write_command(pending, {"CommandName": "refresh", "OutputDirectory": str(output)})
+
+    plugin.process_command_dir(pending)
+
+    report = read_report(output, f"{http_server}/ok")
+    assert isinstance(report["http check"]["connect time ms"], int)
+
+
+class TestNetworkHopsGating:
+    def _plugin(self, http_server, tmp_path, opt_in=True):
+        config = Config(
+            urls=(
+                UrlEntry(url=f"{http_server}/ok", measure_network_hops=opt_in),
+            ),
+            timeout_seconds=5,
+        )
+        return ServerMonPlugin(config, state_file=tmp_path / "state.json")
+
+    def test_measured_on_first_check_then_cached(
+        self, http_server, dirs, tmp_path, monkeypatch
+    ):
+        pending, output = dirs
+        calls = []
+        monkeypatch.setattr(
+            "servermon.plugin.measure_network_hops",
+            lambda url, timeout: calls.append(url) or 7,
+        )
+        plugin = self._plugin(http_server, tmp_path)
+
+        # First refresh: never measured before -> measured now.
+        write_command(
+            pending, {"CommandName": "refresh", "OutputDirectory": str(output)}
+        )
+        plugin.process_command_dir(pending)
+        assert len(calls) == 1
+        report = read_report(output, f"{http_server}/ok")
+        assert report["http check"]["network hops"] == 7
+
+        # Second refresh right away: the regular check runs again, but the
+        # hops measurement waits HOPS_EVERY_N_CHECKS intervals - the cached
+        # value is still re-sent in the report.
+        write_command(
+            pending, {"CommandName": "refresh", "OutputDirectory": str(output)}
+        )
+        plugin.process_command_dir(pending)
+        assert len(calls) == 1  # not measured again
+        report = read_report(output, f"{http_server}/ok")
+        assert report["http check"]["network hops"] == 7
+
+    def test_not_measured_without_opt_in(
+        self, http_server, dirs, tmp_path, monkeypatch
+    ):
+        pending, output = dirs
+        calls = []
+        monkeypatch.setattr(
+            "servermon.plugin.measure_network_hops",
+            lambda url, timeout: calls.append(url) or 7,
+        )
+        plugin = self._plugin(http_server, tmp_path, opt_in=False)
+        write_command(
+            pending, {"CommandName": "refresh", "OutputDirectory": str(output)}
+        )
+        plugin.process_command_dir(pending)
+        assert calls == []
+        assert "network hops" not in read_report(output, f"{http_server}/ok")[
+            "http check"
+        ]
+
+    def test_action_driven_refresh_never_measures(
+        self, http_server, dirs, tmp_path, monkeypatch
+    ):
+        pending, output = dirs
+        calls = []
+        monkeypatch.setattr(
+            "servermon.plugin.measure_network_hops",
+            lambda url, timeout: calls.append(url) or 7,
+        )
+        plugin = self._plugin(http_server, tmp_path)
+        # A "check now" action: due for a hops measurement (never measured),
+        # but action refreshes are the regular check only.
+        write_command(
+            pending,
+            {
+                "CommandName": "refresh",
+                "OutputDirectory": str(output),
+                "TargetDevice": device_id(f"{http_server}/ok"),
+                "CommandID": "12345-0",
+            },
+        )
+        plugin.process_command_dir(pending)
+        assert calls == []
+
+    def test_failed_measurement_waits_full_interval(
+        self, http_server, dirs, tmp_path, monkeypatch
+    ):
+        pending, output = dirs
+        calls = []
+        monkeypatch.setattr(
+            "servermon.plugin.measure_network_hops",
+            lambda url, timeout: calls.append(url) and None,
+        )
+        plugin = self._plugin(http_server, tmp_path)
+        for _ in range(2):
+            write_command(
+                pending, {"CommandName": "refresh", "OutputDirectory": str(output)}
+            )
+            plugin.process_command_dir(pending)
+        # The failed attempt still counts as the last attempt: no retry on
+        # the very next check, and no stale value in the report.
+        assert len(calls) == 1
+        assert "network hops" not in read_report(output, f"{http_server}/ok")[
+            "http check"
+        ]

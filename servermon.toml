@@ -38,3 +38,6 @@ url = "https://localhost:44444/fake.html"
 # # (DeviceReportRefreshIntervalMinutes in settings.json). Can also be set
 # # from BigFix via the "set refresh interval <minutes>" action command.
 # check_interval_minutes = 240
+# # Estimate the network hop count to the server (TTL binary search over
+# # plain TCP connects) on 1 in every 6 checks of this URL.
+# measure_network_hops = true

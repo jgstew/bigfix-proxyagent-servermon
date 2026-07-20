@@ -36,6 +36,9 @@ class DeviceRecord:
     # Last time an HTTP response was actually received from the URL (any
     # status code); None if the URL has never responded.
     last_contact: str | None = None
+    # Most recently measured network hop count (measure_network_hops URLs
+    # only); None if never successfully measured.
+    network_hops: int | None = None
 
 
 class DeviceState:
@@ -52,12 +55,23 @@ class DeviceState:
         self._updates: dict[str, dict[str, Any]] = {}
         self._removals: set[str] = set()
 
-    def record(self, device_id: str, result: CheckResult) -> DeviceRecord:
+    def record(
+        self,
+        device_id: str,
+        result: CheckResult,
+        *,
+        hops_measured: bool = False,
+        network_hops: int | None = None,
+    ) -> DeviceRecord:
         """Record the result of a check; return the device's history.
 
         Receiving any HTTP response (even a 500) counts as contact with the
         URL; a failed check becomes the new last error. Values not updated
-        by this check keep their previously recorded state.
+        by this check keep their previously recorded state. When a network
+        hops measurement was attempted (hops_measured), its time is recorded
+        even if it failed - so a failure still waits a full hops interval
+        before the next attempt - but a failed measurement keeps the
+        previously known hop count.
         """
         entry = dict(self._data.get(device_id, {}))
         entry["last check"] = result.checked_at
@@ -65,6 +79,10 @@ class DeviceState:
             entry["last contact"] = result.checked_at
         if not result.success:
             entry["last error"] = {"detail": result.detail, "time": result.checked_at}
+        if hops_measured:
+            entry["last hops check"] = result.checked_at
+            if network_hops is not None:
+                entry["network hops"] = network_hops
         self._data[device_id] = entry
         self._updates[device_id] = entry
         return _to_record(entry)
@@ -74,6 +92,13 @@ class DeviceState:
         honor per-URL check_interval_minutes across plugin runs.
         """
         value = self._data.get(device_id, {}).get("last check")
+        return value if isinstance(value, str) else None
+
+    def last_hops_check(self, device_id: str) -> str | None:
+        """When a network hops measurement was last attempted for this
+        device (successful or not); None if never.
+        """
+        value = self._data.get(device_id, {}).get("last hops check")
         return value if isinstance(value, str) else None
 
     def store_report(self, device_id: str, report: dict[str, Any]) -> None:
@@ -137,7 +162,12 @@ def _to_record(entry: dict[str, Any]) -> DeviceRecord:
     last_error = None
     if isinstance(error, dict):
         last_error = LastError(detail=error["detail"], time=error["time"])
-    return DeviceRecord(last_error=last_error, last_contact=entry.get("last contact"))
+    hops = entry.get("network hops")
+    return DeviceRecord(
+        last_error=last_error,
+        last_contact=entry.get("last contact"),
+        network_hops=hops if isinstance(hops, int) else None,
+    )
 
 
 def _read_state(path: Path | None) -> dict[str, dict[str, Any]]:
@@ -172,6 +202,11 @@ def _read_state(path: Path | None) -> dict[str, dict[str, Any]]:
             cleaned["last contact"] = entry["last contact"]
         if isinstance(entry.get("last check"), str):
             cleaned["last check"] = entry["last check"]
+        if isinstance(entry.get("last hops check"), str):
+            cleaned["last hops check"] = entry["last hops check"]
+        hops = entry.get("network hops")
+        if isinstance(hops, int) and not isinstance(hops, bool):
+            cleaned["network hops"] = hops
         if isinstance(entry.get("last report"), dict):
             cleaned["last report"] = entry["last report"]
         if entry.get("pending deletion") is True:

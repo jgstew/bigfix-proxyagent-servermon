@@ -18,6 +18,7 @@ from datetime import datetime, timezone
 from email.message import Message
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
+from urllib.parse import urlsplit
 
 if TYPE_CHECKING:
     from .config import UrlEntry
@@ -56,6 +57,10 @@ class CheckResult:
     # Server certificate expiry (notAfter) in TIME_FORMAT; None for plain
     # http, verify_tls = false, or an unparsable/absent cert.
     cert_expires: str | None = None
+    # TCP connect time (DNS resolution + handshake, excluding TLS) of the last
+    # connection made (the final one when redirects were followed); None when
+    # no TCP connection was established.
+    connect_time_ms: int | None = None
 
 
 def check_url(entry: UrlEntry, *, timeout: float, user_agent: str) -> CheckResult:
@@ -70,12 +75,16 @@ def check_url(entry: UrlEntry, *, timeout: float, user_agent: str) -> CheckResul
     )
 
     context = _ssl_context(entry.verify_tls)
+    # Filled in by the timing connection factory when a TCP connect completes;
+    # survives into the error paths (e.g. TLS failure after a good connect).
+    timing: dict[str, int] = {}
+    opener = urllib.request.build_opener(
+        _TimingHTTPHandler(timing), _TimingHTTPSHandler(context, timing)
+    )
 
     started = time.monotonic()
     try:
-        with urllib.request.urlopen(
-            request, timeout=timeout, context=context
-        ) as response:
+        with opener.open(request, timeout=timeout) as response:
             peer_ip, tls_version, cert_expires = _connection_info(response)
             body = response.read(MAX_BODY_BYTES)
             elapsed_ms = _elapsed_ms(started)
@@ -89,6 +98,7 @@ def check_url(entry: UrlEntry, *, timeout: float, user_agent: str) -> CheckResul
                 peer_ip=peer_ip,
                 tls_version=tls_version,
                 cert_expires=cert_expires,
+                connect_time_ms=timing.get("connect_ms"),
             )
     except urllib.error.HTTPError as error:
         # 4xx/5xx raise, but they are still HTTP responses worth reporting.
@@ -108,6 +118,7 @@ def check_url(entry: UrlEntry, *, timeout: float, user_agent: str) -> CheckResul
             peer_ip=peer_ip,
             tls_version=tls_version,
             cert_expires=cert_expires,
+            connect_time_ms=timing.get("connect_ms"),
         )
     except (
         urllib.error.URLError,
@@ -130,7 +141,126 @@ def check_url(entry: UrlEntry, *, timeout: float, user_agent: str) -> CheckResul
         match_found=None if entry.match is None else False,
         checked_at=checked_at,
         server="",
+        connect_time_ms=timing.get("connect_ms"),
     )
+
+
+def _timed_connection_factory(cls: type, timing: dict[str, int]):
+    """A connection factory for urllib's do_open() that times the TCP
+    connect (http.client sets ``_create_connection`` per instance, so it can.
+
+    be wrapped without touching the TLS wrap that HTTPS does afterwards).
+    """
+
+    def factory(host: str, **kwargs: Any) -> http.client.HTTPConnection:
+        conn = cls(host, **kwargs)
+        create = conn._create_connection
+
+        def timed_create(address, *args, **kw):
+            started = time.monotonic()
+            sock = create(address, *args, **kw)
+            timing["connect_ms"] = _elapsed_ms(started)
+            return sock
+
+        conn._create_connection = timed_create
+        return conn
+
+    return factory
+
+
+class _TimingHTTPHandler(urllib.request.HTTPHandler):
+    def __init__(self, timing: dict[str, int]) -> None:
+        super().__init__()
+        self._timing = timing
+
+    def http_open(self, req):
+        return self.do_open(
+            _timed_connection_factory(http.client.HTTPConnection, self._timing), req
+        )
+
+
+class _TimingHTTPSHandler(urllib.request.HTTPSHandler):
+    def __init__(self, context: ssl.SSLContext, timing: dict[str, int]) -> None:
+        super().__init__(context=context)
+        self._timing = timing
+
+    def https_open(self, req):
+        return self.do_open(
+            _timed_connection_factory(http.client.HTTPSConnection, self._timing),
+            req,
+            context=self._context,
+        )
+
+
+# TTL search space for measure_network_hops. 64 is comfortably above real
+# internet path lengths (typically < 30 hops).
+MAX_TTL_HOPS = 64
+
+# Cap on the per-probe connect timeout. A too-low TTL usually surfaces as a
+# timeout on Windows (Linux gets a fast EHOSTUNREACH from the ICMP
+# time-exceeded), so the binary search's failed probes each cost up to this
+# long; the URL's full timeout would make the measurement take minutes.
+HOP_PROBE_TIMEOUT_SECONDS = 5.0
+
+
+def measure_network_hops(url: str, *, timeout: float) -> int | None:
+    """Estimate the network hop count to the URL's host.
+
+    Binary-searches the smallest IP TTL at which a plain TCP connect to the
+    URL's host/port completes (the TLS/HTTP layers are never involved). About
+    7 short connects per measurement. Never raises; returns None when the
+    host is unresolvable/unreachable or the measurement is otherwise
+    impossible. Anycast/CDN targets measure the path to the nearest edge, and
+    routes change, so treat the value as an estimate.
+    """
+    parts = urlsplit(url)
+    host = parts.hostname
+    if not host:
+        return None
+    port = parts.port or (443 if parts.scheme == "https" else 80)
+    probe_timeout = min(timeout, HOP_PROBE_TIMEOUT_SECONDS)
+
+    try:
+        infos = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
+    except OSError:
+        return None
+    if not infos:
+        return None
+    # Probe one resolved address consistently for the whole search.
+    family, _, _, _, sockaddr = infos[0]
+
+    if not _probe_ttl(family, sockaddr, MAX_TTL_HOPS, probe_timeout):
+        return None  # unreachable even without a TTL limit; nothing to measure
+    low, high = 1, MAX_TTL_HOPS
+    while low < high:
+        mid = (low + high) // 2
+        if _probe_ttl(family, sockaddr, mid, probe_timeout):
+            high = mid
+        else:
+            low = mid + 1
+    return low
+
+
+def _probe_ttl(family: int, sockaddr: Any, ttl: int, timeout: float) -> bool:
+    """Whether a TCP connect with the given IP TTL reaches the host."""
+    try:
+        with socket.socket(family, socket.SOCK_STREAM) as sock:
+            if family == socket.AF_INET6:
+                sock.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_UNICAST_HOPS, ttl)
+            else:
+                sock.setsockopt(socket.IPPROTO_IP, socket.IP_TTL, ttl)
+            sock.settimeout(timeout)
+            try:
+                sock.connect(sockaddr)
+            except ConnectionRefusedError:
+                return True  # an RST came back, so the packet reached the host
+            except OSError:
+                # Timeout, or the TTL expired in transit (Linux reports the
+                # ICMP time-exceeded as EHOSTUNREACH; Windows just times out).
+                return False
+            return True
+    except OSError:
+        return False
 
 
 _ssl_context_lock = threading.Lock()
@@ -239,6 +369,7 @@ def _from_response(
     peer_ip: str | None = None,
     tls_version: str | None = None,
     cert_expires: str | None = None,
+    connect_time_ms: int | None = None,
 ) -> CheckResult:
     header_text, body_text = _response_texts(headers, body)
 
@@ -282,6 +413,7 @@ def _from_response(
         tls_version=tls_version,
         bad_string_found=bad_string_found,
         cert_expires=cert_expires,
+        connect_time_ms=connect_time_ms,
     )
 
 

@@ -29,6 +29,7 @@ _URL_ENTRY_KEYS = {
     "verify_tls",
     "timeout_seconds",
     "check_interval_minutes",
+    "measure_network_hops",
 }
 
 
@@ -50,6 +51,10 @@ class UrlEntry:
     # heartbeat (DeviceReportRefreshIntervalMinutes in settings.json), since
     # the plugin only runs when the Proxy Agent invokes it.
     check_interval_minutes: int | None = None
+    # Opt-in network hop count measurement (TTL binary search over plain TCP
+    # connects). Rides along with 1 in every HOPS_EVERY_N_CHECKS (6) regular
+    # checks of this URL - there is deliberately no separate interval setting.
+    measure_network_hops: bool = False
 
 
 @dataclass(frozen=True)
@@ -169,6 +174,10 @@ def _parse_url_entry(item: Any, where: str) -> UrlEntry:
     if not isinstance(verify_tls, bool):
         raise ConfigError(f"{where}: 'verify_tls' must be true or false")
 
+    measure_hops = item.get("measure_network_hops", False)
+    if not isinstance(measure_hops, bool):
+        raise ConfigError(f"{where}: 'measure_network_hops' must be true or false")
+
     timeout = item.get("timeout_seconds")
     if timeout is not None and not _is_positive_number(timeout):
         raise ConfigError(f"{where}: 'timeout_seconds' must be a positive number")
@@ -188,6 +197,7 @@ def _parse_url_entry(item: Any, where: str) -> UrlEntry:
         verify_tls=verify_tls,
         timeout_seconds=None if timeout is None else float(timeout),
         check_interval_minutes=interval,
+        measure_network_hops=measure_hops,
     )
 
 

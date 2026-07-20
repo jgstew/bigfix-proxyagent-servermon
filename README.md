@@ -62,6 +62,8 @@ no_match = "database error"     # optional: fail the check if this
 url = "https://internal.example.local:8443/health"
 timeout_seconds = 10
 verify_tls = false              # for self-signed certs on internal servers
+measure_network_hops = true     # optional: estimate hop count to the server
+                                # on 1 in every 6 checks
 ```
 
 Notes:
@@ -72,6 +74,7 @@ Notes:
 - `match` and `no_match` are both case-insensitive **regexes** searched against the response headers and the first 1 MiB of the body. `match` must be found for the check to pass; a `no_match` hit fails the check even on HTTP 200 - for catching pages like "Could not connect to the database" served with a success status. Plain text works as a pattern, but regex metacharacters (`. ? * + ( ) [ ] \`) are interpreted - escape them with `\` if you mean them literally. Both are validated at config load.
 - Redirects are followed; the final response is what gets reported.
 - A URL that returns HTTP 4xx/5xx, fails its `match`, trips its `no_match`, or does not respond at all reports `success of http check = false` (an unreachable server reports response code `0`).
+- `measure_network_hops = true` (per URL, default off) estimates the network hop count to the server by binary-searching the smallest IP TTL at which a plain TCP connect completes (~7 short connects, no TLS/HTTP involved, no elevated privileges). To keep the probing cheap it rides along with only **1 in every 6** regular checks of that URL - an hourly URL is measured every 6 hours - and there is deliberately no separate interval setting. Targeted/manual refreshes never pull a measurement forward: they perform the regular check only. The most recent value is re-sent in every report as `network hops of http check` (absent until the first successful measurement); a failed measurement waits a full 6-check cycle before retrying and keeps the last known value. Hop counts to CDN/anycast sites measure the path to the nearest edge and routes change - treat the value as an estimate.
 
 ### Check interval - [settings.json](settings.json)
 
@@ -110,6 +113,8 @@ The check itself is one nested `http check` object, read with `<phrase> of http 
 | `match found of http check` | boolean | only present when `match` is configured |
 | `bad string found of http check` | boolean | only present when `no_match` is configured; `true` = reachable but serving known-bad content |
 | `response time ms of http check` | integer | `231` |
+| `connect time ms of http check` | integer | `18` - DNS + TCP connect of the last connection made (excludes TLS); absent when nothing connected |
+| `network hops of http check` | integer | `12` - only for `measure_network_hops` URLs, once measured |
 | `last error of http check` | string | detail string of the most recent *failed* check |
 | `last error time of http check` | time | when that error occurred |
 | `tls version of http check` | string | `TLSv1.3` (absent for plain http / no connection) |

@@ -46,6 +46,8 @@ These properties read "no error recorded" for a device that has never failed.</p
 		<Property Name="SSL Certificate Expires" ID="17" EvaluationPeriod="PT30M"><![CDATA[if exists ssl certificate expiration of http check then (ssl certificate expiration of http check) as string else "n/a"]]></Property>
 		<Property Name="SSL Certificate Days Remaining" ID="18" EvaluationPeriod="PT30M"><![CDATA[if exists ssl certificate expiration of http check then (((ssl certificate expiration of http check) - now) / day) as integer as string else "n/a"]]></Property>
 		<Property Name="Remote IP Address" ID="13" EvaluationPeriod="PT30M"><![CDATA[if exists remote ip address of http check then remote ip address of http check else "n/a"]]></Property>
+		<Property Name="Connect Time (ms)" ID="20" EvaluationPeriod="PT30M"><![CDATA[if exists connect time ms of http check then (connect time ms of http check) as string else "n/a"]]></Property>
+		<Property Name="Network Hops" ID="21" EvaluationPeriod="PT30M"><![CDATA[if exists network hops of http check then (network hops of http check) as string else "n/a"]]></Property>
 		<Property Name="Proxy Agent Plugin" ID="19" EvaluationPeriod="PT30M"><![CDATA[if exists proxy agent plugin then ((name of it & " v" & (version of it as string) & " on " & host of it & " @ " & (last report time of it as string)) of proxy agent plugin) else "n/a"]]></Property>
 	</Analysis>
 </BES>

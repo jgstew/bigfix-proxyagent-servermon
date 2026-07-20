@@ -111,6 +111,8 @@ def build_report(
     # TLS protocol version of the connection, and the remote IP actually
     # connected to. The IP also feeds the reserved "IP Address" console
     # property via the built-in network inspectors.
+    if result.connect_time_ms is not None:
+        http_check["connect time ms"] = result.connect_time_ms
     if result.tls_version is not None:
         http_check["tls version"] = result.tls_version
     if result.cert_expires is not None:
@@ -143,6 +145,10 @@ def build_report(
         if device_state.last_error is not None:
             http_check["last error"] = device_state.last_error.detail
             http_check["last error time"] = device_state.last_error.time
+        # Most recent hop measurement (opt-in URLs, refreshed every
+        # HOPS_EVERY_N_CHECKS checks); re-sent with every report in between.
+        if device_state.network_hops is not None:
+            http_check["network hops"] = device_state.network_hops
         # Last time the URL actually answered with an HTTP response. When
         # present, the Proxy Agent uses it to generate the console's Last
         # Report Time, so a URL that stops responding shows a visibly stale

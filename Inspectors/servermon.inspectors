@@ -7,6 +7,8 @@ success of <http check>: boolean
 match found of <http check>: boolean
 bad string found of <http check>: boolean
 response time ms of <http check>: integer
+connect time ms of <http check>: integer
+network hops of <http check>: integer
 last error of <http check>: string
 last error time of <http check>: time
 tls version of <http check>: string

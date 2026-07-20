@@ -12,7 +12,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from .checker import CheckResult, check_url
+from .checker import CheckResult, check_url, measure_network_hops
 from .command import Command, CommandError
 from .config import (Config, ConfigError, UrlEntry, heartbeat_minutes,
                      remove_url_entry, set_url_check_interval)
@@ -23,6 +23,11 @@ from .util import write_json_atomic
 log = logging.getLogger(__name__)
 
 MAX_PARALLEL_CHECKS = 8
+
+# An opted-in URL (measure_network_hops) gets a hop measurement alongside 1 in
+# every N regular checks; the cadence is N x the URL's effective check
+# interval, deliberately not separately configurable.
+HOPS_EVERY_N_CHECKS = 6
 
 SET_REFRESH_INTERVAL = "set refresh interval"
 DELETE_DEVICE = "delete device"
@@ -133,7 +138,13 @@ class ServerMonPlugin:
                 _remove_command_file(command)
                 return
 
-        rows = self.check_and_report(entries, sequence=command.device_report_sequence)
+        # Action-driven refreshes ("check now") are the regular check only:
+        # they never pull a network hops measurement forward.
+        rows = self.check_and_report(
+            entries,
+            sequence=command.device_report_sequence,
+            allow_hops=not command.command_id,
+        )
         if new_entries:
             # Checked separately: the command's deviceReportSequence belongs
             # to the targeted device only, so it is not echoed here.
@@ -341,6 +352,27 @@ class ServerMonPlugin:
             ]
         return entries
 
+    def _hops_due(self, entry: UrlEntry) -> bool:
+        """Whether this check should also measure network hops: the URL has
+        opted in and HOPS_EVERY_N_CHECKS effective check intervals have.
+
+        passed since the last measurement attempt.
+        """
+        if not entry.measure_network_hops:
+            return False
+        last = self.state.last_hops_check(device_id(entry.url))
+        if last is None:
+            return True
+        try:
+            last_dt = email.utils.parsedate_to_datetime(last)
+        except (TypeError, ValueError):
+            return True
+        elapsed_minutes = (datetime.now().astimezone() - last_dt).total_seconds() / 60
+        interval = entry.check_interval_minutes or self.default_interval
+        # Same 10% slack as _is_due, so heartbeat jitter cannot push every
+        # measurement one full check later.
+        return elapsed_minutes >= interval * HOPS_EVERY_N_CHECKS * 0.9
+
     def _is_due(self, entry: UrlEntry) -> bool:
         interval = entry.check_interval_minutes
         if interval is None:
@@ -385,7 +417,10 @@ class ServerMonPlugin:
         _remove_command_file(command)
 
     def check_and_report(
-        self, entries: list[UrlEntry], sequence: int | None = None
+        self,
+        entries: list[UrlEntry],
+        sequence: int | None = None,
+        allow_hops: bool = True,
     ) -> list[tuple[UrlEntry, CheckResult, dict[str, Any]]]:
         """Check every entry and build its device report, updating (and
         persisting) the per-device last-error state.
@@ -393,9 +428,17 @@ class ServerMonPlugin:
         if not entries:
             return []
         log.info("checking %d URL(s)", len(entries))
+        hops_urls = (
+            {e.url for e in entries if self._hops_due(e)} if allow_hops else set()
+        )
         rows = []
-        for entry, result in self.run_checks(entries):
-            device_state = self.state.record(device_id(entry.url), result)
+        for entry, result, hops in self.run_checks(entries, hops_urls=hops_urls):
+            device_state = self.state.record(
+                device_id(entry.url),
+                result,
+                hops_measured=entry.url in hops_urls,
+                network_hops=hops,
+            )
             report = build_report(
                 entry,
                 result,
@@ -410,21 +453,44 @@ class ServerMonPlugin:
         self.state.save()
         return rows
 
-    def run_checks(self, entries: list[UrlEntry]) -> list[tuple[UrlEntry, CheckResult]]:
-        """Check every entry (in parallel) and pair each with its result."""
+    def run_checks(
+        self, entries: list[UrlEntry], hops_urls: set[str] | None = None
+    ) -> list[tuple[UrlEntry, CheckResult, int | None]]:
+        """Check every entry (in parallel); pair each with its result and
+        its network hop count (None unless the URL is in hops_urls and the.
+
+        measurement succeeded).
+        """
         if not entries:
             return []
+        hops_urls = hops_urls or set()
         workers = min(MAX_PARALLEL_CHECKS, len(entries))
         with ThreadPoolExecutor(max_workers=workers) as pool:
-            results = list(pool.map(self._check_one, entries))
-        return list(zip(entries, results))
+            results = list(
+                pool.map(lambda e: self._check_one(e, e.url in hops_urls), entries)
+            )
+        return [
+            (entry, result, hops) for entry, (result, hops) in zip(entries, results)
+        ]
 
-    def _check_one(self, entry: UrlEntry) -> CheckResult:
-        return check_url(
+    def _check_one(
+        self, entry: UrlEntry, measure_hops: bool = False
+    ) -> tuple[CheckResult, int | None]:
+        result = check_url(
             entry,
             timeout=self.config.timeout_for(entry),
             user_agent=self.config.user_agent,
         )
+        hops = None
+        if measure_hops:
+            hops = measure_network_hops(
+                entry.url, timeout=self.config.timeout_for(entry)
+            )
+            if hops is None:
+                log.info("network hops for %s: measurement failed", entry.url)
+            else:
+                log.info("network hops for %s: %d", entry.url, hops)
+        return result, hops
 
 
 def _parse_positive_int(text: str) -> int | None:
