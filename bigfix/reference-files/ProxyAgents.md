@@ -1,6 +1,6 @@
 # How BigFix Proxy Agents Work
 
-A generic reference for the BigFix Proxy Agent (Management Extender) plugin
+A generic reference for the BigFix Proxy Agent plugin
 architecture, using this repo - servermon, a URL-monitoring plugin - as the
 running example. Everything here was validated against a live Proxy Agent
 deployment; where the modern agent differs from the older public docs
@@ -15,25 +15,37 @@ codebase see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 BigFix normally manages a device by running a native BES Client on it. Some
 "devices" cannot run an agent - mobile devices, ESXi hosts, cloud instances,
-or (here) a URL. The **Proxy Agent** (`BESProxyAgent`, a Windows service that
-runs alongside a BES Relay) fills that gap: it performs registration,
-relevance evaluation, and report submission *on behalf of* such devices, so
-they appear in the console like any other computer.
+or (here) a URL. Three distinct things cooperate to manage them, and BigFix's
+naming tends to run them together, so it is worth pinning them down up front:
 
-The Proxy Agent knows nothing about the devices themselves. That knowledge
-lives in **plugins**: executables the agent launches to translate between its
-file-based protocol and whatever the external system speaks. servermon's
-"external system" is HTTP itself - each monitored URL becomes one proxied
-device.
+- **Management Extender** - a BES Relay set up to host proxied devices: the
+  *machine* (and its `BigFix Enterprise\Management Extender\` install tree)
+  that everything below runs on. The name denotes a host/role, not a process.
+- **Proxy Agent** - `BESProxyAgent`, the Windows service running on the
+  Management Extender. This is the runtime engine: it does the
+  BES-Client-shaped work *on behalf of* devices that cannot run a client -
+  registering them, evaluating their relevance, submitting their reports - and
+  it launches and orchestrates the plugins. Referred to below as just
+  "the agent".
+- **Proxy agent plugins** - the executables the agent launches to actually
+  talk to one kind of external system. The agent itself knows nothing about
+  any specific device type; a plugin is where the real per-device work lives.
+  servermon is one such plugin - its "external system" is HTTP, and each
+  monitored URL becomes one proxied device.
+
+So the hierarchy is: one Management Extender runs one Proxy Agent service,
+which hosts many plugins, each of which manages many devices.
 
 ```
-BES Server <-> Relay <-> BESProxyAgent <-(command files)-> plugin <-> external system
-                                       <-(report/result files)-      (here: HTTP GETs)
+BES Server <-> BES Relay <-> BESProxyAgent <-(command files)---> plugin <-> external system
+                             (the agent)    <-(report/result files)-       (here: HTTP GETs)
 ```
 
-One proxy agent hosts many plugins; one plugin manages many devices. The agent
-tracks which plugin owns which device and never runs two plugin instances
-against the same device at once (it may run instances concurrently for
+(The BES Relay, the BESProxyAgent service, and the plugins it launches all run
+on the Management Extender host; only the external system is remote.)
+
+The agent tracks which plugin owns which device and never runs two instances of
+a plugin against the same device at once (it may run instances concurrently for
 *different* devices - plugins must tolerate that, e.g. servermon's state file
 is merge-on-save).
 
@@ -126,8 +138,8 @@ practice (verified live) commands listed there for *any* plugin are delivered,
 which is how servermon supports `refresh`, `set refresh interval <minutes>`,
 and `delete device`.
 
-> **Note - valid command names.** The actionscript commands a proxy agent can
-> issue are not open-ended: each must already be a known BigFix actionscript
+> **Note - valid command names.** The actionscript commands a plugin can
+> handle are not open-ended: each must already be a known BigFix actionscript
 > command. In practice that means the command name must appear in one of two
 > reference files (both under [bigfix/reference-files/](.)):
 >
@@ -228,11 +240,11 @@ relevant on real BES clients (see
 [bigfix/content/analysis-servermon.bes](bigfix/content/analysis-servermon.bes)).
 
 > **Note - prefer the standard inspectors.** Beyond whatever custom relevance a
-> plugin defines, a proxy agent should also try to fill in as many of the
+> plugin defines, a plugin should also try to fill in as many of the
 > standard inspectors in [`main.inspectors`](main.inspectors) as make sense for
-> that type of proxy agent. That file is installed alongside the management
-> extender (from `BigFix Enterprise\Management Extender\Inspectors` on a Windows
-> system with the management extender installed) and enumerates the inspectors -
+> that type of plugin. That file is installed alongside the Management Extender
+> (from `BigFix Enterprise\Management Extender\Inspectors` on a Windows
+> system with the Management Extender installed) and enumerates the inspectors -
 > device identity, reserved/predefined properties, correlation keys, and other
 > generally useful phrases - that all plugins are expected to populate where they
 > can. None are strictly mandatory, but populating them is recommended wherever
