@@ -435,6 +435,173 @@ def test_check_interval_replays_cached_report(http_server, dirs, tmp_path):
     assert not command_file.is_file()
 
 
+def _within_interval_state(target, extra=None):
+    """State for a URL checked just now, with a sentinel-code cached report,
+    so a plain refresh within the interval would replay the cache (299).
+    """
+    now = email.utils.format_datetime(datetime.now().astimezone())
+    entry = {
+        "last check": now,
+        "last report": {
+            "device id": target,
+            "computer name": "cached-device",
+            "data source": "servermon",
+            "http check": {"response code": 299},
+        },
+    }
+    entry.update(extra or {})
+    return {target: entry}
+
+
+def test_version_bump_forces_check_within_interval(http_server, dirs, tmp_path):
+    """A servermon major/minor upgrade forces a real HTTP check even within
+    the URL's check interval, so any report-shape change reaches BigFix.
+
+    promptly instead of waiting out the interval on a stale cached report.
+    """
+    pending, output = dirs
+    url = f"{http_server}/ok"
+    target = device_id(url)
+    state_file = tmp_path / "servermon-state.json"
+    # An older major.minor than the current __version__.
+    state_file.write_text(
+        json.dumps(_within_interval_state(target, {"last check version": "0.0.0"})),
+        encoding="utf-8",
+    )
+    config = Config(
+        urls=(UrlEntry(url=url, check_interval_minutes=60),), timeout_seconds=5
+    )
+    plugin = ServerMonPlugin(config, state_file=state_file)
+    write_command(pending, {"CommandName": "refresh", "OutputDirectory": str(output)})
+
+    plugin.process_command_dir(pending)
+
+    # A real check ran (200), not the cached sentinel (299).
+    assert read_report(output, url)["http check"]["response code"] == 200
+
+
+def test_patch_bump_does_not_force_check(http_server, dirs, tmp_path):
+    """A patch-level upgrade (same major.minor) does not force a check: the
+    cached report is replayed as usual within the interval.
+    """
+    from servermon import __version__
+
+    pending, output = dirs
+    url = f"{http_server}/ok"
+    target = device_id(url)
+    major, minor = __version__.split(".")[:2]
+    same_minor = f"{major}.{minor}.0"  # same major.minor, patch may differ
+    state_file = tmp_path / "servermon-state.json"
+    state_file.write_text(
+        json.dumps(
+            _within_interval_state(target, {"last check version": same_minor})
+        ),
+        encoding="utf-8",
+    )
+    config = Config(
+        urls=(UrlEntry(url=url, check_interval_minutes=60),), timeout_seconds=5
+    )
+    plugin = ServerMonPlugin(config, state_file=state_file)
+    write_command(pending, {"CommandName": "refresh", "OutputDirectory": str(output)})
+
+    plugin.process_command_dir(pending)
+
+    assert read_report(output, url)["http check"]["response code"] == 299  # cached
+
+
+def test_version_downgrade_does_not_force_check(http_server, dirs, tmp_path):
+    """Running an older servermon than last time (a rollback) does not force
+    a check; only an upgrade does.
+    """
+    pending, output = dirs
+    url = f"{http_server}/ok"
+    target = device_id(url)
+    state_file = tmp_path / "servermon-state.json"
+    state_file.write_text(
+        json.dumps(
+            _within_interval_state(target, {"last check version": "999.0.0"})
+        ),
+        encoding="utf-8",
+    )
+    config = Config(
+        urls=(UrlEntry(url=url, check_interval_minutes=60),), timeout_seconds=5
+    )
+    plugin = ServerMonPlugin(config, state_file=state_file)
+    write_command(pending, {"CommandName": "refresh", "OutputDirectory": str(output)})
+
+    plugin.process_command_dir(pending)
+
+    assert read_report(output, url)["http check"]["response code"] == 299  # cached
+
+
+def test_missing_last_check_version_does_not_force_check(http_server, dirs, tmp_path):
+    """State predating this feature has no recorded version, so there is no
+    baseline to compare: fall back to the normal interval (replay the cache).
+
+    rather than re-checking every URL on the first upgrade.
+    """
+    pending, output = dirs
+    url = f"{http_server}/ok"
+    target = device_id(url)
+    state_file = tmp_path / "servermon-state.json"
+    state_file.write_text(
+        json.dumps(_within_interval_state(target)), encoding="utf-8"
+    )
+    config = Config(
+        urls=(UrlEntry(url=url, check_interval_minutes=60),), timeout_seconds=5
+    )
+    plugin = ServerMonPlugin(config, state_file=state_file)
+    write_command(pending, {"CommandName": "refresh", "OutputDirectory": str(output)})
+
+    plugin.process_command_dir(pending)
+
+    assert read_report(output, url)["http check"]["response code"] == 299  # cached
+
+
+class TestMajorMinor:
+    def test_parses_major_minor_ignoring_patch(self):
+        from servermon.plugin import _major_minor
+
+        assert _major_minor("2.3.0") == (2, 3)
+        assert _major_minor("10.4.7.dev1") == (10, 4)
+
+    def test_returns_none_for_unusable_versions(self):
+        from servermon.plugin import _major_minor
+
+        assert _major_minor(None) is None
+        assert _major_minor("") is None
+        assert _major_minor("2") is None  # no minor component
+        assert _major_minor("2.x") is None  # non-numeric minor
+
+
+def test_unparseable_current_version_does_not_force(
+    http_server, dirs, tmp_path, monkeypatch
+):
+    """If the running version cannot be parsed, fall back to the normal
+    interval rather than forcing (or suppressing) a check on every URL.
+    """
+    import servermon.plugin
+
+    monkeypatch.setattr(servermon.plugin, "__version__", "not-a-version")
+    pending, output = dirs
+    url = f"{http_server}/ok"
+    target = device_id(url)
+    state_file = tmp_path / "servermon-state.json"
+    state_file.write_text(
+        json.dumps(_within_interval_state(target, {"last check version": "0.0.0"})),
+        encoding="utf-8",
+    )
+    config = Config(
+        urls=(UrlEntry(url=url, check_interval_minutes=60),), timeout_seconds=5
+    )
+    plugin = ServerMonPlugin(config, state_file=state_file)
+    write_command(pending, {"CommandName": "refresh", "OutputDirectory": str(output)})
+
+    plugin.process_command_dir(pending)
+
+    assert read_report(output, url)["http check"]["response code"] == 299  # cached
+
+
 def test_replayed_cached_report_echoes_sequence(http_server, dirs, tmp_path):
     pending, output = dirs
     url = f"{http_server}/ok"

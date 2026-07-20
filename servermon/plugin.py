@@ -12,6 +12,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from . import __version__
 from .checker import CheckResult, check_url, measure_network_hops
 from .command import Command, CommandError
 from .config import (Config, ConfigError, UrlEntry, heartbeat_minutes,
@@ -373,12 +374,34 @@ class ServerMonPlugin:
         # measurement one full check later.
         return elapsed_minutes >= interval * HOPS_EVERY_N_CHECKS * 0.9
 
+    def _version_bumped_since_check(self, entry: UrlEntry) -> bool:
+        """Whether servermon's major or minor version has increased since
+        this URL was last checked.
+
+        A minor/major bump can change the report shape or check semantics, so
+        the URL is re-checked immediately rather than replaying a cached
+        report until its interval elapses. Patch bumps do not trigger this.
+        With no recorded version (state predating this feature) there is no
+        baseline, so it returns False and the normal interval applies.
+        """
+        previous = _major_minor(self.state.last_check_version(device_id(entry.url)))
+        current = _major_minor(__version__)
+        if previous is None or current is None:
+            return False
+        return current > previous
+
     def _is_due(self, entry: UrlEntry) -> bool:
         interval = entry.check_interval_minutes
         if interval is None:
             return True
         last_check = self.state.last_check(device_id(entry.url))
         if last_check is None:
+            return True
+        if self._version_bumped_since_check(entry):
+            log.info(
+                "checking %s: servermon upgraded since its last check",
+                device_name(entry.url),
+            )
             return True
         try:
             last_dt = email.utils.parsedate_to_datetime(last_check)
@@ -491,6 +514,21 @@ class ServerMonPlugin:
             else:
                 log.info("network hops for %s: %d", entry.url, hops)
         return result, hops
+
+
+def _major_minor(version: str | None) -> tuple[int, int] | None:
+    """The (major, minor) of a version string, or None if it is absent or
+    not of the form ``<int>.<int>[...]`` (e.g. a dev/rc suffix on the minor).
+    """
+    if not version:
+        return None
+    parts = version.split(".")
+    if len(parts) < 2:
+        return None
+    try:
+        return int(parts[0]), int(parts[1])
+    except ValueError:
+        return None
 
 
 def _parse_positive_int(text: str) -> int | None:

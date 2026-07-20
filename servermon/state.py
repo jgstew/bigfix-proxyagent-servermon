@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from . import __version__
 from .util import write_json_atomic
 
 if TYPE_CHECKING:
@@ -75,6 +76,9 @@ class DeviceState:
         """
         entry = dict(self._data.get(device_id, {}))
         entry["last check"] = result.checked_at
+        # The servermon version that produced this check, so a later run can
+        # tell whether the plugin was upgraded since (see last_check_version).
+        entry["last check version"] = __version__
         if result.status_code != 0:
             entry["last contact"] = result.checked_at
         if not result.success:
@@ -92,6 +96,15 @@ class DeviceState:
         honor per-URL check_interval_minutes across plugin runs.
         """
         value = self._data.get(device_id, {}).get("last check")
+        return value if isinstance(value, str) else None
+
+    def last_check_version(self, device_id: str) -> str | None:
+        """Servermon version in effect when this device was last checked.
+
+        None if never checked or the state predates version tracking. Used to
+        force a fresh check after a plugin upgrade.
+        """
+        value = self._data.get(device_id, {}).get("last check version")
         return value if isinstance(value, str) else None
 
     def last_hops_check(self, device_id: str) -> str | None:
@@ -202,6 +215,8 @@ def _read_state(path: Path | None) -> dict[str, dict[str, Any]]:
             cleaned["last contact"] = entry["last contact"]
         if isinstance(entry.get("last check"), str):
             cleaned["last check"] = entry["last check"]
+        if isinstance(entry.get("last check version"), str):
+            cleaned["last check version"] = entry["last check version"]
         if isinstance(entry.get("last hops check"), str):
             cleaned["last hops check"] = entry["last hops check"]
         hops = entry.get("network hops")

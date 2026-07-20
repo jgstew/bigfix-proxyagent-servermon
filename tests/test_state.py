@@ -244,6 +244,28 @@ def test_cached_report_missing_returns_none():
     assert DeviceState().cached_report("dev1") is None
 
 
+def test_records_servermon_version_of_last_check():
+    from servermon import __version__
+
+    state = DeviceState()
+    state.record("dev1", make_result(True, "OK: HTTP 200 OK (1 ms)"))
+    assert state.last_check_version("dev1") == __version__
+
+
+def test_last_check_version_missing_returns_none():
+    assert DeviceState().last_check_version("dev1") is None
+
+
+def test_last_check_version_survives_reload(tmp_path):
+    from servermon import __version__
+
+    path = tmp_path / "state.json"
+    first = DeviceState(path)
+    first.record("dev1", make_result(True, "OK: HTTP 200 OK (1 ms)"))
+    first.save()
+    assert DeviceState(path).last_check_version("dev1") == __version__
+
+
 def test_forget_removes_device_even_after_merge(tmp_path):
     path = tmp_path / "state.json"
     state = DeviceState(path)
