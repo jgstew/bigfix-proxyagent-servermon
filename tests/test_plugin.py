@@ -778,6 +778,138 @@ def test_set_refresh_interval_command(http_server, dirs, tmp_path):
     assert not command_file.is_file()
 
 
+def _notify_add_url_command(output, target, new_url, args=None, cmd_id="600-0"):
+    return {
+        "commandName": "notify client",
+        "commandArguments": args if args is not None else f"add-url {new_url}",
+        "outputDirectory": str(output),
+        "targetDevice": target,
+        "commandID": cmd_id,
+    }
+
+
+def test_notify_client_add_url_appends_and_reports_completed(
+    http_server, dirs, tmp_path
+):
+    pending, output = dirs
+    config_path = write_toml_config(tmp_path, http_server)
+    plugin = ServerMonPlugin(load_config(config_path), config_path=config_path)
+    target = device_id(f"{http_server}/ok")  # any existing device works
+    new_url = f"{http_server}/other"
+    write_command(pending, _notify_add_url_command(output, target, new_url))
+
+    plugin.process_command_dir(pending)
+
+    assert new_url in [entry.url for entry in load_config(config_path).urls]
+    result = json.loads(
+        next(iter(output.glob("600-0-*.json"))).read_text(encoding="utf-8")
+    )
+    assert result == [{"CommandID": "600-0", "DeviceID": target, "Result": "Completed"}]
+
+
+def test_notify_client_add_url_is_case_insensitive(http_server, dirs, tmp_path):
+    pending, output = dirs
+    config_path = write_toml_config(tmp_path, http_server)
+    plugin = ServerMonPlugin(load_config(config_path), config_path=config_path)
+    target = device_id(f"{http_server}/ok")
+    new_url = f"{http_server}/other"
+    write_command(
+        pending,
+        {
+            "commandName": "NOTIFY CLIENT",
+            "commandArguments": f"ADD-URL {new_url}",
+            "outputDirectory": str(output),
+            "targetDevice": target,
+            "commandID": "601-0",
+        },
+    )
+
+    plugin.process_command_dir(pending)
+
+    assert new_url in [entry.url for entry in load_config(config_path).urls]
+    result = json.loads(
+        next(iter(output.glob("601-0-*.json"))).read_text(encoding="utf-8")
+    )
+    assert result[0]["Result"] == "Completed"
+
+
+def test_notify_client_add_url_duplicate_reports_error(http_server, dirs, tmp_path):
+    pending, output = dirs
+    config_path = write_toml_config(tmp_path, http_server)
+    plugin = ServerMonPlugin(load_config(config_path), config_path=config_path)
+    target = device_id(f"{http_server}/ok")
+    # Adding the URL that is already configured must be rejected, unchanged.
+    write_command(
+        pending, _notify_add_url_command(output, target, f"{http_server}/ok")
+    )
+
+    plugin.process_command_dir(pending)
+
+    assert len(load_config(config_path).urls) == 1
+    result = json.loads(
+        next(iter(output.glob("600-0-*.json"))).read_text(encoding="utf-8")
+    )
+    assert result[0]["Result"] == "Error"
+
+
+def test_notify_client_unknown_subcommand_reports_error(http_server, dirs, tmp_path):
+    pending, output = dirs
+    config_path = write_toml_config(tmp_path, http_server)
+    plugin = ServerMonPlugin(load_config(config_path), config_path=config_path)
+    target = device_id(f"{http_server}/ok")
+    write_command(
+        pending,
+        _notify_add_url_command(
+            output, target, None, args=f"do-something {http_server}/other"
+        ),
+    )
+
+    plugin.process_command_dir(pending)
+
+    assert len(load_config(config_path).urls) == 1  # unchanged
+    result = json.loads(
+        next(iter(output.glob("600-0-*.json"))).read_text(encoding="utf-8")
+    )
+    assert result[0]["Result"] == "Error"
+
+
+def test_notify_client_add_url_without_url_reports_error(http_server, dirs, tmp_path):
+    pending, output = dirs
+    config_path = write_toml_config(tmp_path, http_server)
+    plugin = ServerMonPlugin(load_config(config_path), config_path=config_path)
+    target = device_id(f"{http_server}/ok")
+    write_command(
+        pending, _notify_add_url_command(output, target, None, args="add-url")
+    )
+
+    plugin.process_command_dir(pending)
+
+    assert len(load_config(config_path).urls) == 1  # unchanged
+    result = json.loads(
+        next(iter(output.glob("600-0-*.json"))).read_text(encoding="utf-8")
+    )
+    assert result[0]["Result"] == "Error"
+
+
+def test_notify_client_add_url_without_config_path_reports_error(
+    http_server, dirs
+):
+    # No config file path (e.g. --check style construction) -> cannot persist.
+    pending, output = dirs
+    plugin = make_plugin(http_server)  # constructed without config_path
+    target = device_id(f"{http_server}/ok")
+    write_command(
+        pending, _notify_add_url_command(output, target, f"{http_server}/other")
+    )
+
+    plugin.process_command_dir(pending)
+
+    result = json.loads(
+        next(iter(output.glob("600-0-*.json"))).read_text(encoding="utf-8")
+    )
+    assert result[0]["Result"] == "Error"
+
+
 def test_set_refresh_interval_invalid_arguments(http_server, dirs, tmp_path):
     from servermon.config import load_config
 

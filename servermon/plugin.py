@@ -15,8 +15,9 @@ from typing import Any
 from . import __version__
 from .checker import CheckResult, check_url, measure_network_hops
 from .command import Command, CommandError
-from .config import (Config, ConfigError, UrlEntry, heartbeat_minutes,
-                     remove_url_entry, set_url_check_interval)
+from .config import (Config, ConfigError, UrlEntry, add_url_entry,
+                     heartbeat_minutes, remove_url_entry,
+                     set_url_check_interval)
 from .device import build_report, device_id, device_name
 from .state import DeviceState
 from .util import write_json_atomic
@@ -32,6 +33,13 @@ HOPS_EVERY_N_CHECKS = 6
 
 SET_REFRESH_INTERVAL = "set refresh interval"
 DELETE_DEVICE = "delete device"
+# "notify client <subcommand> ...": a built-in actionscript command we reuse to
+# add a new monitored URL from the console. It can target any servermon device
+# (the target is irrelevant - the URL comes from the arguments). Note: "notify
+# client" is not in ProxyPluginCommands.json, so whether the Proxy Agent
+# forwards it to the plugin is unverified (see README "Adding a URL").
+NOTIFY_CLIENT = "notify client"
+ADD_URL_SUBCOMMAND = "add-url"
 
 # Command result files use the spec-suggested "<commandID>-<PID>-<seq>.json"
 # naming so concurrently running plugin instances can never collide.
@@ -79,6 +87,8 @@ class ServerMonPlugin:
             self._process_set_refresh_interval(command)
         elif command.name == DELETE_DEVICE:
             self._process_delete_device(command)
+        elif command.name == NOTIFY_CLIENT:
+            self._process_notify_client(command)
         else:
             self._process_unsupported(command)
 
@@ -269,6 +279,60 @@ class ServerMonPlugin:
                 DELETE_DEVICE,
                 entries[0].url,
             )
+
+        _write_command_result(
+            command,
+            [
+                {
+                    "CommandID": command.command_id,
+                    "DeviceID": command.target_device,
+                    "Result": outcome,
+                }
+            ],
+        )
+        _remove_command_file(command)
+
+    def _process_notify_client(self, command: Command) -> None:
+        """Actionscript "notify client add-url <url>": add a new [[urls]] entry
+        to servermon.toml.
+
+        Unlike the other actions this ignores the targeted device - it may be
+        sent to any servermon device to register a brand-new URL. The URL is
+        appended to the config (and the in-memory copy, so a later refresh in
+        the same batch reports it); a duplicate or malformed URL is rejected by
+        the config writer and reported as Error. Any subcommand other than
+        add-url is Error too.
+        """
+        outcome = "Error"
+        args = str(command.get("commandarguments")).strip().split(None, 1)
+        subcommand = args[0].lower() if args else ""
+        url = args[1].strip() if len(args) > 1 else ""
+        if subcommand != ADD_URL_SUBCOMMAND:
+            log.warning(
+                "%s: unsupported subcommand %r (only %r)",
+                NOTIFY_CLIENT,
+                subcommand,
+                ADD_URL_SUBCOMMAND,
+            )
+        elif not url:
+            log.warning("%s %s: no URL given", NOTIFY_CLIENT, ADD_URL_SUBCOMMAND)
+        elif self.config_path is None:
+            log.warning("%s %s: no config file path to update", NOTIFY_CLIENT,
+                        ADD_URL_SUBCOMMAND)
+        else:
+            try:
+                add_url_entry(self.config_path, url)
+                # Reflect the addition in-memory so a full refresh later in this
+                # same invocation picks it up as a newly configured URL.
+                self.config = replace(
+                    self.config, urls=self.config.urls + (UrlEntry(url=url),)
+                )
+                outcome = "Completed"
+                log.info("%s %s: added %s", NOTIFY_CLIENT, ADD_URL_SUBCOMMAND, url)
+            except ConfigError as error:
+                log.warning(
+                    "%s %s failed: %s", NOTIFY_CLIENT, ADD_URL_SUBCOMMAND, error
+                )
 
         _write_command_result(
             command,

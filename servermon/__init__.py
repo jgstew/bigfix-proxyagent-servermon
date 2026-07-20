@@ -5,4 +5,4 @@ time is the last time the URL was checked. Plugin protocol modeled on
 https://github.com/bigfix/trask
 """
 
-__version__ = "3.1.2"
+__version__ = "3.1.3"

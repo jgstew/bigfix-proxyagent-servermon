@@ -178,10 +178,22 @@ Three ways to trigger an immediate check of a device instead of waiting for the 
 2. **Target the device with any action** (by ID or computer name) - the Proxy Agent automatically sends a refresh request to targeted devices when an action is detected, and another when it completes.
 3. **An actionscript `refresh` command.** If the Proxy Agent delivers a refresh carrying a `commandID` (an actionscript-driven refresh), the plugin runs the check and answers with a command result of `Completed` (check passed) or `Failed` (check failed) - so the action status directly reflects the URL's health. Caveat: the Proxy Agent only runs actionscript commands listed in `ProxyPluginCommands.json` (BES Support), where `refresh` appears under other plugins' names and `servermon` has no entry - whether it delivers the command to this plugin depends on how that whitelist is scoped, so verify on a test deployment before relying on it.
 
-The plugin also supports two more whitelisted actionscript commands (verified working on a live 10.x Proxy Agent for `set refresh interval`):
+The plugin also handles three more actionscript commands. The first two are whitelisted in `ProxyPluginCommands.json` (verified working on a live 10.x Proxy Agent for `set refresh interval`); the third (`notify client add-url`) is not - see its caveat below:
 
 - **`set refresh interval <minutes>`** - targeted at a URL device, writes `check_interval_minutes = <minutes>` into that URL's `[[urls]]` entry in servermon.toml (comments and formatting preserved, and the edit is refused if the result would not parse). Reports `Completed` on success, `Error` for a bad argument or unknown device. Takes effect from the next plugin invocation.
 - **`delete device`** - targeted at a URL device, stops monitoring it. Removal is **deferred by one refresh** (a protocol requirement - see "The action lifecycle" in [ProxyAgents.md](bigfix/reference-files/ProxyAgents.md)): the command reports `Completed`, the device is reported one last time on the next refresh, and then its `[[urls]]` entry is removed from servermon.toml (leaving `urls = []` if it was the last one) and its history dropped from the state file. With no further reports the device then expires from BigFix after `DeviceReportExpirationIntervalHours`; delete the computer from the console for immediate removal (it will not come back).
+
+### Adding a URL from the console - `notify client add-url <url>`
+
+A monitored URL can be added without touching the plugin host directly:
+
+```
+notify client add-url https://example.com:888
+```
+
+The command name and subcommand are case-insensitive; the text after `add-url` is appended as a new `[[urls]]` entry in servermon.toml. It can be **targeted at any servermon device** - the target is irrelevant, since the URL to add comes from the arguments (a little odd, but there is no "plugin-level" device to target). A URL that already exists (same device identity - i.e. the same normalized full URL) or is not `http(s)` is rejected and reported as `Error`; otherwise `Completed`. The new URL is picked up on the next full refresh (it has never been checked, so the plugin reports it unprompted).
+
+> **Caveat - delivery is unverified.** `notify client` is a valid actionscript command but is **not** in `ProxyPluginCommands.json`, the whitelist that governs which command names the Proxy Agent forwards to a plugin. The two commands above are whitelist entries; `notify client` is not, so whether the agent actually delivers it to this plugin is **unconfirmed** - verify on a test deployment before relying on it. If it is not delivered, edit servermon.toml on the plugin host instead.
 
 After any action command completes, the Proxy Agent sends a follow-up refresh to the device and only reports the action's final status once that refresh's device report arrives - the plugin always answers refreshes with a report (cached, if the URL is within its check interval), so action statuses post promptly.
 

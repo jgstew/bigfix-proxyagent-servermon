@@ -2,8 +2,8 @@ import pytest
 
 import servermon.config
 from servermon.config import (DEFAULT_TIMEOUT_SECONDS, DEFAULT_USER_AGENT,
-                              ConfigError, load_config, remove_url_entry,
-                              set_url_check_interval)
+                              ConfigError, add_url_entry, load_config,
+                              remove_url_entry, set_url_check_interval)
 
 
 def write_config(tmp_path, text):
@@ -232,6 +232,47 @@ def test_remove_url_entry_unknown_url(tmp_path, write_backend):
     path = write_config(tmp_path, SET_INTERVAL_CONFIG)
     with pytest.raises(ConfigError, match="no \\[\\[urls\\]\\] entry"):
         remove_url_entry(path, "https://nope.example.com")
+
+
+def test_add_url_entry_appends(tmp_path, write_backend):
+    path = write_config(tmp_path, SET_INTERVAL_CONFIG)
+    add_url_entry(path, "https://three.example.com:888")
+
+    config = load_config(path)
+    assert [entry.url for entry in config.urls] == [
+        "https://one.example.com",
+        "https://two.example.com",
+        "https://three.example.com:888",
+    ]
+    text = path.read_text(encoding="utf-8")
+    assert "# global comment" in text  # existing content preserved by both backends
+    assert "check_interval_minutes = 15" in text  # existing entries untouched
+
+
+def test_add_url_entry_rejects_duplicate(tmp_path, write_backend):
+    # Same normalized URL (trailing slash) -> same device id -> rejected by the
+    # re-parse gate, and the file is left unchanged.
+    path = write_config(tmp_path, SET_INTERVAL_CONFIG)
+    with pytest.raises(ConfigError):
+        add_url_entry(path, "https://one.example.com/")
+    assert len(load_config(path).urls) == 2
+
+
+def test_add_url_entry_rejects_malformed_url(tmp_path, write_backend):
+    path = write_config(tmp_path, SET_INTERVAL_CONFIG)
+    with pytest.raises(ConfigError):
+        add_url_entry(path, "ftp://not-http.example.com")
+    assert len(load_config(path).urls) == 2
+
+
+def test_add_url_entry_to_empty_list(tmp_path, write_backend):
+    # A config left as `urls = []` by a full delete must accept a new entry
+    # (a [[urls]] table cannot coexist with `urls = []`).
+    path = write_config(tmp_path, "urls = []\n")
+    add_url_entry(path, "https://first.example.com")
+
+    config = load_config(path)
+    assert [entry.url for entry in config.urls] == ["https://first.example.com"]
 
 
 def test_vendored_tomlkit_is_loadable():

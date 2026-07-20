@@ -222,6 +222,7 @@ _URL_LINE_RE = re.compile(r"^\s*url\s*=\s*([\"'])(?P<url>.*)\1\s*(#.*)?$")
 _INTERVAL_LINE_RE = re.compile(r"^\s*check_interval_minutes\s*=")
 _TABLE_HEADER_RE = re.compile(r"^\s*\[")
 _URLS_HEADER_RE = re.compile(r"^\s*\[\[urls\]\]")
+_EMPTY_URLS_RE = re.compile(r"^\s*urls\s*=\s*\[\s*\]\s*(#.*)?$")
 
 
 def set_url_check_interval(path: Path | str, url: str, minutes: int) -> None:
@@ -257,6 +258,51 @@ def remove_url_entry(path: Path | str, url: str) -> None:
         _remove_with_tomlkit(path, url, tomlkit)
     else:
         _remove_url_entry_regex(path, url)
+
+
+def add_url_entry(path: Path | str, url: str) -> None:
+    """Append a new ``[[urls]]`` entry to the TOML file (in-place edit).
+
+    Used by the "notify client add-url" action. Prefers the vendored tomlkit;
+    falls back to appending TOML text. The new text is re-parsed by
+    :func:`_write_validated_config_text` before it is committed, so a duplicate
+    device id or a URL that is not http(s) is rejected (``ConfigError``) and the
+    file is left unchanged.
+    """
+    path = Path(path)
+    tomlkit = load_tomlkit()
+    if tomlkit is not None:
+        _add_with_tomlkit(path, url, tomlkit)
+    else:
+        _add_url_entry_regex(path, url)
+
+
+def _add_with_tomlkit(path: Path, url: str, tomlkit) -> None:
+    doc = _load_tomlkit_doc(path, tomlkit)
+    new_table = tomlkit.table()
+    new_table["url"] = url
+    urls = doc.get("urls")
+    # `urls = []` (the empty array a full delete leaves behind) is not an
+    # array-of-tables and cannot hold a [[urls]] entry, so replace it; a
+    # populated array is appended to; a missing key is created fresh.
+    if urls is not None and len(urls) > 0:
+        urls.append(new_table)
+    else:
+        aot = tomlkit.aot()
+        aot.append(new_table)
+        doc["urls"] = aot
+    _write_validated_config_text(path, tomlkit.dumps(doc))
+
+
+def _add_url_entry_regex(path: Path, url: str) -> None:
+    """Tomlkit-free fallback for :func:`add_url_entry`."""
+    lines = _read_config_lines(path)
+    # A leftover top-level `urls = []` cannot coexist with a [[urls]] table;
+    # drop it so the appended table becomes the array's only entry.
+    lines = [line for line in lines if not _EMPTY_URLS_RE.match(line)]
+    escaped = url.replace("\\", "\\\\").replace('"', '\\"')
+    lines += ["", "[[urls]]", f'url = "{escaped}"']
+    _write_validated_config(path, lines)
 
 
 def _edit_with_tomlkit(path: Path, url: str, tomlkit, mutate) -> None:
