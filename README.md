@@ -14,21 +14,21 @@ The plugin protocol is modeled on [bigfix/trask](https://github.com/bigfix/trask
 The Proxy Agent drives everything: every `DeviceReportRefreshIntervalMinutes` (default **60**, i.e. hourly) it drops `refresh` command files into `PendingCommands\` under the plugin folder and invokes this plugin with `--commandDir`. The plugin checks the configured URL(s) (in parallel), writes one `<device id>.report` JSON file per URL into the output directory (`DeviceReports\`), and deletes each command file to acknowledge it was processed. The Proxy Agent ingests the reports and reports the devices to the BES root server - which is what sets each device's Last Report Time to the check time.
 
 ```
-BESProxyAgent --(PendingCommands\*.command)--:arrow_forward: plugin/servermon.py
+BESProxyAgent --(PendingCommands\*.command)--> plugin/servermon.py
                                                    |  reads servermon.toml
                                                    |  HTTP GET each URL
                                                    v
-              :arrow_backward:--(DeviceReports\<device id>.report)-- one report per URL
+              <--(DeviceReports\<device id>.report)-- one report per URL
 ```
 
-Once devices are registered, a modern Proxy Agent (observed on 10.x) sends **per-device** refresh commands named `Refresh-<device id>.command` containing `targetDevice`, a `requiredProperties` list (advisory - the plugin always reports every property), and a `deviceReportSequence` number, which the plugin echoes back in the device report.
+Once devices are registered, a modern Proxy Agent (observed on 10.x) sends **per-device** refresh commands; the command file format and fields are covered in [ProxyAgents.md](bigfix/reference-files/ProxyAgents.md).
 
 ## Requirements
 
 - A BigFix Management Extender / Proxy Agent installation (Windows)
 - Python 3.11+ on the machine running the Proxy Agent, on `PATH` as `python`
 
-The plugin runs on the Python standard library alone. One pure-Python package, [tomlkit](https://pypi.org/project/tomlkit/), is **vendored** as a wheel in [vendor/](vendor/) and loaded directly from there (a wheel is a zip; tomlkit has no compiled parts, so `zipimport` handles it) - no `pip install` needed. It is used only to rewrite `servermon.toml` on `set refresh interval` / `delete device` while preserving comments; if the wheel is missing or fails to load, the plugin falls back to regex-based line editing, so nothing breaks. To update it, drop a newer `tomlkit-*.whl` into `vendor/` (the newest by name wins).
+The plugin runs on the Python standard library alone. One pure-Python package, [tomlkit](https://pypi.org/project/tomlkit/), is **vendored** as a wheel in [vendor/](vendor/) and loaded directly from there - no `pip install` needed. It is optional at runtime: it is used only to rewrite `servermon.toml` on `set refresh interval` / `delete device` while preserving comments, and if the wheel is missing or fails to load the plugin falls back to regex-based line editing, so nothing breaks. Updating the wheel is covered in [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Install
 
@@ -51,19 +51,14 @@ timeout_seconds = 30            # per-request timeout, overridable per URL
 
 [[urls]]
 url = "https://example.com"
-match = "Example Domain"        # optional: fail the check unless this
-                                # case-insensitive regex matches the response
-                                # body or headers
-no_match = "database error"     # optional: fail the check if this
-                                # case-insensitive regex matches the body or
-                                # headers (reachable but serving a bad page)
+match = "Example Domain"        # optional: check fails unless this regex matches
+no_match = "database error"     # optional: check fails if this regex matches
 
 [[urls]]
 url = "https://internal.example.local:8443/health"
 timeout_seconds = 10
 verify_tls = false              # for self-signed certs on internal servers
 measure_network_hops = true     # optional: estimate hop count to the server
-                                # on 1 in every 6 checks
 ```
 
 Notes:
@@ -74,7 +69,10 @@ Notes:
 - `match` and `no_match` are both case-insensitive **regexes** searched against the response headers and the first 1 MiB of the body. `match` must be found for the check to pass; a `no_match` hit fails the check even on HTTP 200 - for catching pages like "Could not connect to the database" served with a success status. Plain text works as a pattern, but regex metacharacters (`. ? * + ( ) [ ] \`) are interpreted - escape them with `\` if you mean them literally. Both are validated at config load.
 - Redirects are followed; the final response is what gets reported.
 - A URL that returns HTTP 4xx/5xx, fails its `match`, trips its `no_match`, or does not respond at all reports `success of http check = false` (an unreachable server reports response code `0`).
-- `measure_network_hops = true` (per URL, default off) estimates the network hop count to the server by binary-searching the smallest IP TTL at which a plain TCP connect completes (~7 short connects, no TLS/HTTP involved, no elevated privileges). To keep the probing cheap it rides along with only **1 in every 6** regular checks of that URL - an hourly URL is measured every 6 hours - and there is deliberately no separate interval setting. Targeted/manual refreshes never pull a measurement forward: they perform the regular check only. The most recent value is re-sent in every report as `network hops of http check` (absent until the first successful measurement); a failed measurement waits a full 6-check cycle before retrying and keeps the last known value. Hop counts to CDN/anycast sites measure the path to the nearest edge and routes change - treat the value as an estimate.
+- `measure_network_hops = true` (per URL, default off) estimates the network hop count to the server by binary-searching the smallest IP TTL at which a plain TCP connect completes (~7 short connects, no TLS/HTTP involved, no elevated privileges).
+  - To keep the probing cheap it rides along with only **1 in every 6** regular checks of that URL - an hourly URL is measured every 6 hours - and there is deliberately no separate interval setting. Targeted/manual refreshes never pull a measurement forward: they perform the regular check only.
+  - The most recent value is re-sent in every report as `network hops of http check` (absent until the first successful measurement); a failed measurement waits a full 6-check cycle before retrying and keeps the last known value.
+  - Hop counts to CDN/anycast sites measure the path to the nearest edge and routes change - treat the value as an estimate.
 
 ### Check interval - [settings.json](settings.json)
 
@@ -86,7 +84,12 @@ The check frequency is controlled by the Proxy Agent, not the plugin:
 
 Default is 60 (hourly). Lower it for more frequent checks; restart `BESProxyAgent` after changing it.
 
-Individual URLs can opt into a **longer** interval with `check_interval_minutes` in their `[[urls]]` entry: until the interval has elapsed (tracked in the state file, with 10% slack for heartbeat jitter), the plugin skips the actual HTTP check and **re-submits the cached report** instead - the Proxy Agent always gets a report for every refresh (a pending action waits on one), only the URL is spared the traffic. The re-submitted report keeps all its cached check data (`last check time` shows when the URL was really checked) but advances `last server communication` so it counts as fresh. Since the plugin only runs when the Proxy Agent invokes it, a per-URL interval effectively rounds up to a multiple of the heartbeat - set `DeviceReportRefreshIntervalMinutes` to the smallest interval you need and per-URL intervals to larger values. Action-driven refreshes (a "check now" action) always check regardless.
+Individual URLs can opt into a **longer** interval with `check_interval_minutes` in their `[[urls]]` entry:
+
+- Until the interval has elapsed (tracked in the state file, with 10% slack for heartbeat jitter), the plugin skips the actual HTTP check and **re-submits the cached report** instead - the Proxy Agent always gets a report for every refresh (a pending action waits on one), only the URL is spared the traffic.
+- The re-submitted report keeps all its cached check data (`last check time` shows when the URL was really checked) but advances `last server communication` so it counts as fresh.
+- Since the plugin only runs when the Proxy Agent invokes it, a per-URL interval effectively rounds up to a multiple of the heartbeat - set `DeviceReportRefreshIntervalMinutes` to the smallest interval you need and per-URL intervals to larger values.
+- Action-driven refreshes (a "check now" action) always check regardless.
 
 ### TLS trust store
 
@@ -164,7 +167,7 @@ Three timestamps with distinct meanings are reported:
 
 The `result of http check` string always starts with `OK:`, `FAILED:` (an HTTP response was received but the status or match check failed), or `ERROR:` (no HTTP response - DNS, TCP, TLS, or timeout failure, with the reason).
 
-`last error of http check` and `last error time of http check` capture the most recent failed check even after it clears. Because a device report fully replaces the device's previous data in BigFix, the plugin remembers each device's last error in a small state file (`servermon-state.json` in the repo root by default, `--state-file` to relocate) and re-sends it with every report until a newer error replaces it. The keys are absent only for a device that has never failed.
+`last error of http check` and `last error time of http check` capture the most recent failed check even after it clears: the plugin remembers each device's last error in a small state file (`servermon-state.json` in the repo root by default, `--state-file` to relocate) and re-sends it with every report until a newer error replaces it. The keys are absent only for a device that has never failed.
 
 ## On-demand checks ("check now")
 
@@ -177,7 +180,7 @@ Three ways to trigger an immediate check of a device instead of waiting for the 
 The plugin also supports two more whitelisted actionscript commands (verified working on a live 10.x Proxy Agent for `set refresh interval`):
 
 - **`set refresh interval <minutes>`** - targeted at a URL device, writes `check_interval_minutes = <minutes>` into that URL's `[[urls]]` entry in servermon.toml (comments and formatting preserved, and the edit is refused if the result would not parse). Reports `Completed` on success, `Error` for a bad argument or unknown device. Takes effect from the next plugin invocation.
-- **`delete device`** - targeted at a URL device, stops monitoring it. Removal is **deferred by one refresh**: the command reports `Completed` and flags the device, but leaves its `[[urls]]` entry in place so the Proxy Agent's post-action refresh still receives a device report - without that report the action would hang in "running", because the agent only marks an action complete once the post-action refresh returns a report. On that next refresh the device is reported one last time and then finalized: its `[[urls]]` entry is removed from servermon.toml (leaving `urls = []` if it was the last one) and its history is dropped from the state file. With no further reports the device then expires from BigFix after `DeviceReportExpirationIntervalHours`; delete the computer from the console for immediate removal (it will not come back).
+- **`delete device`** - targeted at a URL device, stops monitoring it. Removal is **deferred by one refresh** (a protocol requirement - see "The action lifecycle" in [ProxyAgents.md](bigfix/reference-files/ProxyAgents.md)): the command reports `Completed`, the device is reported one last time on the next refresh, and then its `[[urls]]` entry is removed from servermon.toml (leaving `urls = []` if it was the last one) and its history dropped from the state file. With no further reports the device then expires from BigFix after `DeviceReportExpirationIntervalHours`; delete the computer from the console for immediate removal (it will not come back).
 
 After any action command completes, the Proxy Agent sends a follow-up refresh to the device and only reports the action's final status once that refresh's device report arrives - the plugin always answers refreshes with a report (cached, if the URL is within its check interval), so action statuses post promptly.
 
@@ -206,8 +209,7 @@ cat /tmp/reports/*.report
 ## Troubleshooting
 
 - Every run writes a rotating log (1 MiB * 3 backups) to `Logs\servermon.log` under the plugin folder by default, creating the directory if needed. Use `--log-file <path>` in the `ExecutablePath` to log somewhere else, and `--log-level DEBUG` for more detail. If the log file cannot be written (e.g. permissions), the plugin logs to stderr and keeps running.
-- The Proxy Agent's own log is in `Management Extender\__Logs`. Additional log streams (`debug`, `evaluation`, `timing`) can be enabled via the registry: `HKLM\Software\BigFix\ProxyAgent` -> `EnabledLogs` (semicolon-delimited; default `critical;events`).
-- To watch the plugin protocol itself, the Proxy Agent supports **carbon copy** client settings on the extender machine: `_ProxyAgent_Command_CarbonCopyPath` (copies every `.command` file before the plugin consumes it), `_ProxyAgent_CommandResults_CarbonCopyPath` (keeps the result JSONs), and `_ProxyAgent_Reporting_CarbonCopyPath` (keeps the client reports posted to the relay).
+- The Proxy Agent's own logs (and extra log streams via the registry) and the **carbon copy** client settings for capturing the raw command/report traffic are covered under "Debugging a plugin" in [ProxyAgents.md](bigfix/reference-files/ProxyAgents.md).
 
 ## Develop
 
@@ -220,6 +222,5 @@ The tests spin up a local HTTP server, so no network access is needed.
 
 ## Related
 
-- https://github.com/bigfix/trask - the (outdated) reference proxy agent plugin this protocol is based on
 - https://gist.github.com/jgstew/671bc55470e3afdf5bfa1fa547e1c08c
 - https://github.com/spulec/uncurl

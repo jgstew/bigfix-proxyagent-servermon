@@ -47,20 +47,22 @@ package from a checkout. Tests import `servermon` directly.
 
 These come from the real Proxy Agent protocol, not from taste:
 
-- **A device report fully replaces the device's prior data in BigFix.** Anything
-  that must survive a check with no fresh value for it (last error, last URL
-  contact, refresh interval) is re-sent on *every* report and remembered in
-  `state.py`. Don't "omit a key to keep the old value" - that clears it.
+- **A device report fully replaces the device's prior data in BigFix** (see
+  "Device reports" in
+  [ProxyAgents.md](bigfix/reference-files/ProxyAgents.md)): anything that must
+  survive a check with no fresh value (last error, last URL contact, refresh
+  interval) is re-sent on *every* report via `state.py` - omitting a key
+  clears it.
 - **`tomllib` is the source of truth for what will parse.** Every config write
   (tomlkit or the regex fallback) is re-parsed with stdlib `tomllib` before being
   committed (`_write_validated_config_text`). Keep it that way; tomlkit can emit
   things the plugin's own loader would treat differently.
 - **Device identity is the scheme-less, trailing-slash-stripped URL** (`device.device_name` -> sha256 = `device_id`). `http://x/` and `https://x` are the same device; the config loader rejects such collisions.
-- **A refresh must always answer with a report** (even a cached replay), because a
-  pending action waits on the post-action refresh. This is why `delete device` is
-  *deferred*: it flags the device and lets the next refresh report it once, then
-  finalizes removal. Never make a refresh path return zero reports for a device
-  the agent still knows about.
+- **A refresh must always answer with a report** (even a cached replay) -
+  otherwise pending actions hang (see "The action lifecycle" in
+  [ProxyAgents.md](bigfix/reference-files/ProxyAgents.md)). This is why
+  `delete device` is *deferred*. Never make a refresh path return zero reports
+  for a device the agent still knows about.
 - **Command result files** are `<commandID>-<PID>-<seq>.json`; refreshes with a
   `commandID` are action-driven and expect a command result, not device reports.
 - **The state file is merge-on-save**: `save()` re-reads and overlays only this
@@ -88,8 +90,9 @@ These come from the real Proxy Agent protocol, not from taste:
   stdlib `tomllib`, and if the wheel is missing the config writers fall back to
   regex line editing. To bump it, drop a newer wheel in `vendor/` (newest by
   filename wins) and delete the old one.
-- Bump `__version__` in `servermon/__init__.py` for releases; it is reported to
-  BigFix as `servermon version` and drives the OS-version fallback.
+- `__version__` in `servermon/__init__.py` is reported to BigFix as
+  `servermon version` and drives the OS-version fallback. The when-to-bump rule
+  lives in [AGENTS.md](AGENTS.md) ("Definition of done").
 - New reportable data means editing **three** places in lockstep: emit it in
   `device.build_report`, declare its type in `Inspectors/servermon.inspectors`,
   and (if it should be visible in the console) add a property to

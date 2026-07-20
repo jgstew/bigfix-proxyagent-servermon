@@ -197,9 +197,8 @@ Three keys are mandatory (the agent cannot register the device without them):
   - `last server communication` - the "effective device communication time";
     a report is only *new* if this advances (file mtime is the fallback).
   - `last device report time` - if present, becomes the console's **Last
-    Report Time**. servermon sets it to the last time the URL actually
-    answered, so a dead URL's Last Report Time goes visibly stale while its
-    properties keep updating via `last server communication`.
+    Report Time** (servermon: the last time the URL actually answered, so a
+    dead URL goes visibly stale - see README, "three timestamps").
   - `deviceReportSequence` / `device report sequence` - echo of the refresh's
     sequence number.
   - Reserved-property inspectors from the agent's own `main.inspectors`
@@ -211,7 +210,6 @@ Two rules with sharp edges:
 - **A report fully replaces the device's previous data.** There is no merging.
   Anything that must remain visible (servermon: last error, last URL contact)
   must be re-sent in every report, which forces the plugin to remember it.
-  Need to verify this.
 - Write atomically (temp file, then rename to `.report`) - the agent watches
   the directory and may read the moment the file appears.
 
