@@ -32,4 +32,4 @@ def _ensure_sdk() -> None:
 
 _ensure_sdk()
 
-__version__ = "3.3.0"
+__version__ = "4.1.1"
