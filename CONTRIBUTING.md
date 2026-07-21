@@ -38,7 +38,7 @@ Each module in `servermon/` has one job:
 | `config.py` | Load/validate `servermon.toml`; edit it for `set refresh interval` / `delete device`. |
 | `state.py` | Per-device history persisted across runs (`servermon-state.json`). |
 | `util.py` | Atomic file writes. |
-| `_vendor.py` | Load the vendored tomlkit wheel from `vendor/`. |
+| `_vendor.py` | Load tomlkit from the copy bundled inside the SDK wheel. |
 
 `plugin/servermon.py` is just a `sys.path` shim so the Proxy Agent can launch the
 package from a checkout. Tests import `servermon` directly.
@@ -93,10 +93,24 @@ These come from the real Proxy Agent protocol, not from taste:
 
 ## Editing gotchas
 
-- **Vendored tomlkit** (`vendor/tomlkit-*.whl`) is optional at runtime: reads use
-  stdlib `tomllib`, and if the wheel is missing the config writers fall back to
-  regex line editing. To bump it, drop a newer wheel in `vendor/` (newest by
-  filename wins) and delete the old one.
+- **tomlkit** is optional at runtime: reads use stdlib `tomllib`, and if it
+  cannot be loaded the config writers fall back to regex line editing. It is
+  loaded with the standard precedence (`vendor.load_wheel_or_bundled`): an
+  installed copy, then a loose `tomlkit-*.whl` in `vendor/`, then the copy
+  *bundled inside the SDK wheel* (`bigfix_proxyagent/_vendor/`). So `vendor/`
+  normally holds only `bigfix_proxyagent-*.whl` and tomlkit comes for free with
+  the SDK. To bump tomlkit, either rebuild the SDK with a newer bundled wheel
+  and drop the refreshed SDK wheel in `vendor/`, or pin a version by dropping a
+  `tomlkit-*.whl` straight into `vendor/` (it wins over the bundled copy). The
+  bootstrap in `servermon/__init__.py` registers `vendor/` via
+  `vendor.set_plugin_vendor_dir`, so the SDK honors that override too.
+- **First-run caching:** when the bundled tomlkit is used and `vendor/` is
+  writable, the SDK copies it into `vendor/tomlkit-*.whl` once so later runs
+  load it directly (no per-process extraction from the SDK wheel). One
+  consequence: that cached wheel then *wins*, so bumping the SDK's bundled
+  tomlkit takes effect only after the stale `vendor/tomlkit-*.whl` is deleted
+  (a fresh redeploy of the folder also clears it). This is why a checked-in
+  `vendor/` holds only the SDK wheel - the tomlkit one is a runtime artifact.
 - `__version__` in `servermon/__init__.py` is reported to BigFix as
   `servermon version` and drives the OS-version fallback. The when-to-bump rule
   lives in [AGENTS.md](AGENTS.md) ("Definition of done").

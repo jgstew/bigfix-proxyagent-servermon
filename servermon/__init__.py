@@ -17,17 +17,27 @@ import sys as _sys
 
 
 def _ensure_sdk() -> None:
-    try:
-        import bigfix_proxyagent  # noqa: F401
-        return
-    except ImportError:
-        pass
     vendor = _os.path.join(
         _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))), "vendor"
     )
-    wheels = sorted(_glob.glob(_os.path.join(vendor, "bigfix_proxyagent-*.whl")))
-    if wheels and wheels[-1] not in _sys.path:
-        _sys.path.insert(0, wheels[-1])
+    try:
+        import bigfix_proxyagent  # noqa: F401
+    except ImportError:
+        wheels = sorted(
+            _glob.glob(_os.path.join(vendor, "bigfix_proxyagent-*.whl"))
+        )
+        if wheels and wheels[-1] not in _sys.path:
+            _sys.path.insert(0, wheels[-1])
+    # Register vendor/ so the SDK prefers a loose wheel this plugin ships there
+    # (e.g. a pinned tomlkit) over its bundled copy - the default for all SDK
+    # dependency loads, including the SDK's own config editor. Best-effort: a
+    # bootstrap hiccup must never break "import servermon".
+    try:
+        from bigfix_proxyagent import vendor as _vendor
+
+        _vendor.set_plugin_vendor_dir(vendor)
+    except ImportError:
+        pass
 
 
 _ensure_sdk()

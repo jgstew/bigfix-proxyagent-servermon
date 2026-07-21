@@ -29,7 +29,7 @@ Once devices are registered, a modern Proxy Agent (observed on 10.x) sends **per
 - A BigFix Management Extender / Proxy Agent installation (Windows)
 - Python 3.11+ on the machine running the Proxy Agent, on `PATH` as `python`
 
-The plugin runs on the Python standard library alone. One pure-Python package, [tomlkit](https://pypi.org/project/tomlkit/), is **vendored** as a wheel in [vendor/](vendor/) and loaded directly from there - no `pip install` needed. It is optional at runtime: it is used only to rewrite `servermon.toml` on `set refresh interval` / `delete device` while preserving comments, and if the wheel is missing or fails to load the plugin falls back to regex-based line editing, so nothing breaks. Updating the wheel is covered in [CONTRIBUTING.md](CONTRIBUTING.md).
+The plugin runs on the Python standard library alone. It **vendors** only the [bigfix-proxyagent](https://github.com/jgstew/bigfix-proxyagent) SDK as a wheel in [vendor/](vendor/), loaded directly from there - no `pip install` needed. One pure-Python package, [tomlkit](https://pypi.org/project/tomlkit/), ships *bundled inside that SDK wheel* and is loaded automatically. It is optional at runtime: it is used only to rewrite `servermon.toml` on `set refresh interval` / `delete device` while preserving comments, and if it fails to load the plugin falls back to regex-based line editing, so nothing breaks. Updating the wheel is covered in [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Install
 
