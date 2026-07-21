@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import email.utils
 import logging
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import fields, replace
@@ -13,8 +12,9 @@ from typing import Any
 from bigfix_proxyagent.config import (Field, Settings, apply_set_command,
                                       parse_bool, parse_int,
                                       parse_positive_float, parse_regex)
-from bigfix_proxyagent.plugin import ProxyAgentPlugin
-from bigfix_proxyagent.util import major_minor
+from bigfix_proxyagent.polling import ScheduledPollingPlugin
+from bigfix_proxyagent.scheduling import (interval_elapsed, minutes_since,
+                                          version_forces_recheck)
 
 from . import __version__
 from .checker import CheckResult, check_url, measure_network_hops
@@ -48,16 +48,18 @@ PUSH_LINK = "push link"
 SET = "set"
 
 
-class ServerMonPlugin(ProxyAgentPlugin):
+class ServerMonPlugin(ScheduledPollingPlugin):
     def __init__(
         self,
         config: Config,
         state_file: Path | None = None,
         config_path: Path | None = None,
     ) -> None:
+        # The SDK's ScheduledPollingPlugin owns self.state and the reusable
+        # scheduling / cached-report-replay / deferred-deletion machinery.
+        super().__init__(DeviceState(state_file, backend=config.state_backend))
         self.config = config
         self.config_path = config_path  # needed by "set refresh interval"
-        self.state = DeviceState(state_file, backend=config.state_backend)
 
     def commands(self):
         # The whitelisted actionscript commands servermon handles; the command
@@ -342,55 +344,41 @@ class ServerMonPlugin(ProxyAgentPlugin):
     def _finalize_pending_deletions(self, reported_ids: set[str]) -> None:
         """Complete deferred "delete device" removals for devices that were
         reported this invocation (their post-action refresh is now answered).
+
+        The generic driver lives in the SDK base; this supplies the servermon
+        removal - drop the [[urls]] entry from the config file and from the
+        in-memory copy.
         """
         if self.config_path is None:
             return
-        for entry in list(self.config.urls):
-            did = device_id(entry.url)
-            if did not in reported_ids or not self.state.is_pending_deletion(did):
-                continue
-            try:
-                remove_url_entry(self.config_path, entry.url)
-            except ConfigError as error:
-                log.warning(
-                    "%s: could not remove %s from config: %s",
-                    DELETE_DEVICE,
-                    entry.url,
-                    error,
-                )
-                continue
-            self.state.forget(did)
+        by_id = {device_id(e.url): e for e in self.config.urls}
+
+        def remove(did: str) -> None:
+            entry = by_id[did]
+            remove_url_entry(self.config_path, entry.url)
             self.config = replace(
-                self.config, urls=tuple(e for e in self.config.urls if e is not entry)
+                self.config,
+                urls=tuple(e for e in self.config.urls if e is not entry),
             )
             log.info("%s: finalized removal of %s", DELETE_DEVICE, entry.url)
-        self.state.save()
+
+        self.finalize_pending_deletions(by_id.keys(), reported_ids, remove)
 
     def _replay_cached_report(self, entry: UrlEntry, command: Command) -> bool:
         """Re-submit the cached report for a URL within its check interval.
 
         Report freshness advances ("last server communication" is now) but
-        all check data keeps its cached values. Returns False when there is
-        no cached report yet, in which case the caller checks for real.
+        all check data keeps its cached values. The reported cadence is kept
+        current (even when the cached report predates a "set refresh interval"
+        change) via ``extra``. Returns False when there is no cached report yet,
+        in which case the caller checks for real.
         """
-        report = self.state.cached_report(device_id(entry.url))
-        if report is None:
-            return False
-        report["last server communication"] = email.utils.format_datetime(
-            datetime.now().astimezone()
+        return self.replay_cached_report(
+            device_id(entry.url),
+            command.output_directory,
+            sequence=command.device_report_sequence,
+            extra={"refresh interval": self.config.refresh_interval_for(entry)},
         )
-        # Keep the reported cadence current even when the cached report
-        # predates a "set refresh interval" change.
-        report["refresh interval"] = self.config.refresh_interval_for(entry)
-        if command.device_report_sequence is not None:
-            report["device report sequence"] = command.device_report_sequence
-            report["deviceReportSequence"] = command.device_report_sequence
-        self.write_report(command.output_directory, report)
-        log.info(
-            "%s: re-submitted cached report (within check interval)",
-            report["computer name"],
-        )
-        return True
 
     def _match_target(self, target_device: str, target_hint: str) -> list[UrlEntry]:
         """Config entries for a targeted device: by device id, falling back
@@ -409,43 +397,34 @@ class ServerMonPlugin(ProxyAgentPlugin):
 
     def _hops_due(self, entry: UrlEntry) -> bool:
         """Whether this check should also measure network hops: the URL has
-        opted in and HOPS_EVERY_N_CHECKS effective check intervals have.
+        opted in and HOPS_EVERY_N_CHECKS effective check intervals have passed.
 
-        passed since the last measurement attempt.
+        since the last measurement attempt.
         """
         if not entry.measure_network_hops:
             return False
         last = self.state.last_hops_check(device_id(entry.url))
-        if last is None:
-            return True
-        try:
-            last_dt = email.utils.parsedate_to_datetime(last)
-        except (TypeError, ValueError):
-            return True
-        elapsed_minutes = (datetime.now().astimezone() - last_dt).total_seconds() / 60
         interval = self.config.refresh_interval_for(entry)
-        # Same 10% slack as _is_due, so heartbeat jitter cannot push every
-        # measurement one full check later.
-        return elapsed_minutes >= interval * HOPS_EVERY_N_CHECKS * 0.9
+        return interval_elapsed(
+            last,
+            interval,
+            datetime.now().astimezone(),
+            multiplier=HOPS_EVERY_N_CHECKS,
+        )
 
     def _version_bumped_since_check(self, entry: UrlEntry) -> bool:
-        """Whether servermon's major or minor version has increased since
-        this URL was last checked.
+        """Whether servermon's major or minor version has increased since this
+        URL was last checked (see :func:`scheduling.version_forces_recheck`).
 
         A minor/major bump can change the report shape or check semantics, so
-        the URL is re-checked immediately rather than replaying a cached
-        report until its interval elapses. Patch bumps do not trigger this.
-        With no recorded version (state predating this feature) there is no
-        baseline, so it returns False and the normal interval applies.
+        the URL is re-checked immediately rather than replaying a cached report
+        until its interval elapses.
         """
-        previous = major_minor(self.state.last_check_version(device_id(entry.url)))
-        current = major_minor(__version__)
-        if previous is None or current is None:
-            return False
-        return current > previous
+        return version_forces_recheck(
+            self.state.last_check_version(device_id(entry.url)), __version__
+        )
 
     def _is_due(self, entry: UrlEntry) -> bool:
-        interval = self.config.refresh_interval_for(entry)
         last_check = self.state.last_check(device_id(entry.url))
         if last_check is None:
             return True
@@ -455,22 +434,17 @@ class ServerMonPlugin(ProxyAgentPlugin):
                 device_name(entry.url),
             )
             return True
-        try:
-            last_dt = email.utils.parsedate_to_datetime(last_check)
-        except (TypeError, ValueError):
+        interval = self.config.refresh_interval_for(entry)
+        now = datetime.now().astimezone()
+        if interval_elapsed(last_check, interval, now):
             return True
-        elapsed_minutes = (datetime.now().astimezone() - last_dt).total_seconds() / 60
-        # 10% slack so heartbeat jitter cannot make an interval equal to the
-        # heartbeat skip every other beat.
-        due = elapsed_minutes >= interval * 0.9
-        if not due:
-            log.info(
-                "skipping %s: checked %.0f min ago, interval is %d min",
-                device_name(entry.url),
-                elapsed_minutes,
-                interval,
-            )
-        return due
+        log.info(
+            "skipping %s: checked %.0f min ago, interval is %d min",
+            device_name(entry.url),
+            minutes_since(last_check, now),
+            interval,
+        )
+        return False
 
     def check_and_report(
         self,
