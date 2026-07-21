@@ -17,6 +17,11 @@ timeout_seconds = 30
 # (minutes, bounded 1-10080; the built-in default is 30).
 # refresh_interval_minutes = 30
 # user_agent = "bigfix-proxyagent-servermon"
+# Where to keep per-device state: "json" (default; human-readable, best for
+# development/testing) or "sqlite" (better with many monitored URLs). Selecting
+# "sqlite" migrates an existing JSON state file once; the switch is one-way, and
+# an existing SQLite state file is always used regardless of this setting.
+# state_backend = "json"
 
 [[urls]]
 url = "https://example.com"

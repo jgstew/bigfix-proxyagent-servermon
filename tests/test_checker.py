@@ -436,12 +436,49 @@ class TestProbeTtl:
             socket.AF_INET6, ("::1", port, 0, 0), ttl=64, timeout=5
         ) is True
 
-    def test_unreachable_address_is_false(self):
-        # 192.0.2.1 (TEST-NET-1, RFC 5737) is guaranteed unassigned: the
-        # connect times out or errors, and either way the probe reports False.
+    def test_connect_timeout_is_false(self, monkeypatch):
+        # A connect that times out (or otherwise errors without an RST) means
+        # the packet did not reach the host, so the probe reports False. Mock
+        # the socket rather than rely on a real "unreachable" address: some
+        # networks (e.g. a captive portal or corporate proxy) answer the SYN
+        # for any address, including RFC 5737 TEST-NET-1.
+        class _FakeSocket:
+            def __init__(self, *args, **kwargs) -> None:
+                pass
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+            def setsockopt(self, *args):
+                pass
+
+            def settimeout(self, *args):
+                pass
+
+            def connect(self, *args):
+                raise TimeoutError("timed out")  # a subclass of OSError
+
+        monkeypatch.setattr(servermon.checker.socket, "socket", _FakeSocket)
         assert _probe_ttl(
             socket.AF_INET, ("192.0.2.1", 80), ttl=64, timeout=0.2
         ) is False
+
+    def test_unreachable_address_is_false_real_socket(self):
+        # Real-socket companion to test_connect_timeout_is_false, as a canary
+        # for the actual connect path. 192.0.2.1 (TEST-NET-1, RFC 5737) is
+        # unassigned; a high, non-standard port dodges transparent HTTP/HTTPS
+        # proxies that answer 80/443 for any address. If the connect still
+        # reports reachable, the network is intercepting arbitrary ports too -
+        # skip (don't fail), since real unreachability can't be observed here.
+        result = _probe_ttl(
+            socket.AF_INET, ("192.0.2.1", 48819), ttl=64, timeout=0.2
+        )
+        if result is not False:
+            pytest.skip("network intercepts connects to unrouted addresses")
+        assert result is False
 
     def test_socket_creation_failure_is_false(self):
         # An invalid address family makes socket() itself raise OSError.

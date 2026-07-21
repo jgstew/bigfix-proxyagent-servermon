@@ -266,6 +266,42 @@ def test_last_check_version_survives_reload(tmp_path):
     assert DeviceState(path).last_check_version("dev1") == __version__
 
 
+# --- SQLite backend (via the SDK) ----------------------------------------------
+
+
+def test_sqlite_backend_round_trips_servermon_fields(tmp_path):
+    path = tmp_path / "state.json"
+    failed = make_result(False, "FAILED: HTTP 500 (1 ms)")
+    store = DeviceState(path, backend="sqlite")
+    store.record("dev1", failed, hops_measured=True, network_hops=4)
+    store.save()
+
+    # Persisted to the SQLite sibling, not the JSON path.
+    assert (tmp_path / "state.sqlite").is_file()
+    assert not path.exists()
+
+    reloaded = DeviceState(path)  # default json, but sqlite sibling wins
+    record = reloaded.record("dev1", make_result(True, "OK"))
+    assert record.last_error == LastError(failed.detail, failed.checked_at)
+    assert record.network_hops == 4
+
+
+def test_sqlite_migration_preserves_history_and_keeps_json(tmp_path):
+    path = tmp_path / "state.json"
+    failed = make_result(False, "FAILED: HTTP 500 (1 ms)")
+    json_store = DeviceState(path)
+    json_store.record("dev1", failed)
+    json_store.save()
+    assert path.is_file()
+
+    migrated = DeviceState(path, backend="sqlite")
+    kept = migrated.record("dev1", make_result(True, "OK"))
+    assert kept.last_error == LastError(failed.detail, failed.checked_at)
+    # One-way, non-destructive: JSON file remains, SQLite sibling now exists.
+    assert path.is_file()
+    assert (tmp_path / "state.sqlite").is_file()
+
+
 def test_forget_removes_device_even_after_merge(tmp_path):
     path = tmp_path / "state.json"
     state = DeviceState(path)

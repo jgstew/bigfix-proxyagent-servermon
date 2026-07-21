@@ -44,6 +44,40 @@ def test_minimal_config(tmp_path):
     assert config.timeout_seconds is None
     assert config.timeout_for(entry) == 45
     assert config.user_agent == DEFAULT_USER_AGENT
+    # State defaults to JSON unless [settings] opts into sqlite.
+    assert config.state_backend == "json"
+
+
+def test_state_backend_sqlite(tmp_path):
+    config = load_config(
+        write_config(
+            tmp_path,
+            """
+            [settings]
+            state_backend = "sqlite"
+
+            [[urls]]
+            url = "https://example.com"
+            """,
+        )
+    )
+    assert config.state_backend == "sqlite"
+
+
+def test_state_backend_invalid_rejected(tmp_path):
+    with pytest.raises(ConfigError, match="settings.state_backend"):
+        load_config(
+            write_config(
+                tmp_path,
+                """
+                [settings]
+                state_backend = "postgres"
+
+                [[urls]]
+                url = "https://example.com"
+                """,
+            )
+        )
 
 
 def test_full_config(tmp_path):

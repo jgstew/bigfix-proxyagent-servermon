@@ -61,6 +61,11 @@ class Config:
     timeout_seconds: float | None = None
     user_agent: str = DEFAULT_USER_AGENT
     refresh_interval_minutes: int | None = None
+    # State storage backend: "json" (default; human-readable, ideal for
+    # development/testing) or "sqlite" (better with many devices). Only advisory
+    # - if a SQLite state file already exists the SDK uses it regardless, and
+    # selecting "sqlite" migrates an existing JSON state file once (never back).
+    state_backend: str = "json"
 
     def timeout_for(self, entry: UrlEntry) -> float:
         """Effective per-request timeout (seconds) for one URL: the per-URL
@@ -136,6 +141,14 @@ def parse_config(raw: dict[str, Any], source: str = "<config>") -> Config:
             f"{source}: settings.refresh_interval_minutes must be an integer"
         )
 
+    # State backend selection (see Config.state_backend). Advisory only, so an
+    # unknown value is a config mistake worth rejecting rather than normalizing.
+    state_backend = settings.get("state_backend", "json")
+    if state_backend not in ("json", "sqlite"):
+        raise ConfigError(
+            f'{source}: settings.state_backend must be "json" or "sqlite"'
+        )
+
     raw_urls = raw.get("urls")
     if not isinstance(raw_urls, list):
         # An explicitly-empty list is allowed (e.g. after "delete device"
@@ -177,6 +190,7 @@ def parse_config(raw: dict[str, Any], source: str = "<config>") -> Config:
         timeout_seconds=None if timeout is None else float(timeout),
         user_agent=user_agent,
         refresh_interval_minutes=settings_interval,
+        state_backend=state_backend,
     )
 
 

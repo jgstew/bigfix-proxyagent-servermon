@@ -57,7 +57,7 @@ class ServerMonPlugin(ProxyAgentPlugin):
     ) -> None:
         self.config = config
         self.config_path = config_path  # needed by "set refresh interval"
-        self.state = DeviceState(state_file)
+        self.state = DeviceState(state_file, backend=config.state_backend)
 
     def commands(self):
         # The whitelisted actionscript commands servermon handles; the command

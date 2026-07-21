@@ -230,6 +230,10 @@ Two things this does **not** do:
 - It does **not** remove devices from the BigFix console. Devices already reported live on the BES root server, not in these files; they persist (showing their last-posted data) until a fresh report updates them, they go silent for `DeviceReportExpirationIntervalHours` and expire, or you delete the computer in the console.
 - Any pending **delete device** that had not yet finalized is silently canceled - the deferred-deletion flag lived only in `servermon-state.json`.
 
+### State storage backend
+
+State is kept as JSON (`servermon-state.json`) by default, which is human-readable and ideal for development and testing. For a deployment monitoring many URLs you can switch to SQLite with `state_backend = "sqlite"` under `[settings]`. Selecting SQLite migrates the existing JSON state once into `servermon-state.sqlite` (beside the JSON file, which is left in place as a fallback); the switch is **one-way**. Regardless of the setting, if a `servermon-state.sqlite` file is already present it is always used - so a migrated plugin never silently reverts to JSON. When resetting state, delete whichever file is in use (and remove `servermon-state.sqlite` if you want a SQLite-configured plugin to fall back to JSON).
+
 ## Develop
 
 ```bash
