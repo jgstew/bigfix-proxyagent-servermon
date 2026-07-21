@@ -209,5 +209,4 @@ repos:
         always_run: true
         # stages: [manual]
         additional_dependencies:
-          - lxml
           - pytest-cov
