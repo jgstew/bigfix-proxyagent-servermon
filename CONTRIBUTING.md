@@ -83,7 +83,7 @@ These come from the real Proxy Agent protocol, not from taste:
   the network - keep it that way; add endpoints to the fixture instead.
 - Config-write tests use the `write_backend` fixture (in `test_config.py`) to run
   **both** the tomlkit and regex-fallback paths. Any change to
-  `set_url_check_interval` / `remove_url_entry` must pass under both.
+  `set_url_refresh_interval` / `remove_url_entry` must pass under both.
 - Prefer driving behavior through `ServerMonPlugin.process_command_dir` with a
   written command file (see `test_plugin.py`) over calling internals - it exercises
   the real dispatch and file lifecycle.

@@ -3,8 +3,8 @@ import pytest
 import servermon.config
 from servermon.config import (DEFAULT_TIMEOUT_SECONDS, DEFAULT_USER_AGENT,
                               ConfigError, add_url_entry, clear_url_option,
-                              load_config, remove_url_entry,
-                              set_url_check_interval, set_url_option)
+                              load_config, remove_url_entry, set_url_option,
+                              set_url_refresh_interval)
 
 
 def write_config(tmp_path, text):
@@ -122,22 +122,91 @@ def test_check_interval_option(tmp_path):
             """
             [[urls]]
             url = "https://example.com"
-            check_interval_minutes = 120
+            refresh_interval_minutes = 120
             """,
         )
     )
-    assert config.urls[0].check_interval_minutes == 120
+    assert config.urls[0].refresh_interval_minutes == 120
 
 
-def test_check_interval_must_be_positive_integer(tmp_path):
-    with pytest.raises(ConfigError, match="check_interval_minutes"):
+def test_check_interval_accepts_any_integer(tmp_path):
+    # Out-of-range values are accepted at parse time and normalized later by
+    # Config.refresh_interval_for; only a non-integer is a config error.
+    config = load_config(
+        write_config(
+            tmp_path,
+            """
+            [[urls]]
+            url = "https://example.com"
+            refresh_interval_minutes = -5
+            """,
+        )
+    )
+    assert config.urls[0].refresh_interval_minutes == -5
+
+
+def test_check_interval_must_be_an_integer(tmp_path):
+    with pytest.raises(ConfigError, match="refresh_interval_minutes"):
         load_config(
             write_config(
                 tmp_path,
                 """
                 [[urls]]
                 url = "https://example.com"
-                check_interval_minutes = -5
+                refresh_interval_minutes = 1.5
+                """,
+            )
+        )
+
+
+def test_settings_refresh_interval_default_and_precedence(tmp_path):
+    config = load_config(
+        write_config(
+            tmp_path,
+            """
+            [settings]
+            refresh_interval_minutes = 45
+
+            [[urls]]
+            url = "https://a.example.com"
+
+            [[urls]]
+            url = "https://b.example.com"
+            refresh_interval_minutes = 120
+            """,
+        )
+    )
+    assert config.refresh_interval_minutes == 45
+    # First URL inherits the [settings] default; second overrides it.
+    assert config.refresh_interval_for(config.urls[0]) == 45
+    assert config.refresh_interval_for(config.urls[1]) == 120
+
+
+def test_refresh_interval_defaults_to_thirty_without_settings(tmp_path):
+    config = load_config(
+        write_config(
+            tmp_path,
+            """
+            [[urls]]
+            url = "https://example.com"
+            """,
+        )
+    )
+    assert config.refresh_interval_minutes is None
+    assert config.refresh_interval_for(config.urls[0]) == 30
+
+
+def test_settings_refresh_interval_must_be_an_integer(tmp_path):
+    with pytest.raises(ConfigError, match="settings.refresh_interval_minutes"):
+        load_config(
+            write_config(
+                tmp_path,
+                """
+                [settings]
+                refresh_interval_minutes = "soon"
+
+                [[urls]]
+                url = "https://example.com"
                 """,
             )
         )
@@ -154,48 +223,35 @@ match = "ok"  # entry comment
 
 [[urls]]
 url = "https://two.example.com"
-check_interval_minutes = 15
+refresh_interval_minutes = 15
 """
 
 
-def test_set_url_check_interval_inserts(tmp_path, write_backend):
+def test_set_url_refresh_interval_inserts(tmp_path, write_backend):
     path = write_config(tmp_path, SET_INTERVAL_CONFIG)
-    set_url_check_interval(path, "https://one.example.com", 60)
+    set_url_refresh_interval(path, "https://one.example.com", 60)
 
     config = load_config(path)
-    assert config.urls[0].check_interval_minutes == 60
-    assert config.urls[1].check_interval_minutes == 15  # untouched
+    assert config.urls[0].refresh_interval_minutes == 60
+    assert config.urls[1].refresh_interval_minutes == 15  # untouched
     text = path.read_text(encoding="utf-8")
     assert "# global comment" in text  # comments preserved by both backends
     assert "# entry comment" in text
 
 
-def test_set_url_check_interval_replaces(tmp_path, write_backend):
+def test_set_url_refresh_interval_replaces(tmp_path, write_backend):
     path = write_config(tmp_path, SET_INTERVAL_CONFIG)
-    set_url_check_interval(path, "https://two.example.com", 240)
+    set_url_refresh_interval(path, "https://two.example.com", 240)
 
     config = load_config(path)
-    assert config.urls[1].check_interval_minutes == 240
-    assert path.read_text(encoding="utf-8").count("check_interval_minutes") == 1
+    assert config.urls[1].refresh_interval_minutes == 240
+    assert path.read_text(encoding="utf-8").count("refresh_interval_minutes") == 1
 
 
-def test_set_url_check_interval_unknown_url(tmp_path, write_backend):
+def test_set_url_refresh_interval_unknown_url(tmp_path, write_backend):
     path = write_config(tmp_path, SET_INTERVAL_CONFIG)
     with pytest.raises(ConfigError, match="no \\[\\[urls\\]\\] entry"):
-        set_url_check_interval(path, "https://nope.example.com", 60)
-
-
-def test_heartbeat_minutes_reads_settings_json(tmp_path):
-    from servermon.config import DEFAULT_HEARTBEAT_MINUTES, heartbeat_minutes
-
-    settings = tmp_path / "settings.json"
-    settings.write_text(
-        '{"ID": "servermon", "DeviceReportRefreshIntervalMinutes": 15}',
-        encoding="utf-8",
-    )
-    assert heartbeat_minutes(settings) == 15
-    # Missing or unreadable settings.json falls back to the shipped default.
-    assert heartbeat_minutes(tmp_path / "nope.json") == DEFAULT_HEARTBEAT_MINUTES
+        set_url_refresh_interval(path, "https://nope.example.com", 60)
 
 
 def test_empty_urls_list_is_allowed(tmp_path):
@@ -266,10 +322,10 @@ def test_set_url_option_regex_with_backslash_roundtrips(tmp_path, write_backend)
 
 def test_set_url_option_replaces_existing_value(tmp_path, write_backend):
     path = write_config(tmp_path, SET_INTERVAL_CONFIG)
-    set_url_option(path, "https://two.example.com", "check_interval_minutes", 240)
+    set_url_option(path, "https://two.example.com", "refresh_interval_minutes", 240)
     text = path.read_text(encoding="utf-8")
-    assert text.count("check_interval_minutes") == 1  # replaced, not duplicated
-    assert load_config(path).urls[1].check_interval_minutes == 240
+    assert text.count("refresh_interval_minutes") == 1  # replaced, not duplicated
+    assert load_config(path).urls[1].refresh_interval_minutes == 240
 
 
 def test_set_url_option_rejects_bad_value(tmp_path, write_backend):
@@ -288,12 +344,12 @@ def test_set_url_option_unknown_url(tmp_path, write_backend):
 
 def test_clear_url_option_removes_value(tmp_path, write_backend):
     path = write_config(tmp_path, SET_INTERVAL_CONFIG)
-    # two.example.com has check_interval_minutes = 15
-    clear_url_option(path, "https://two.example.com", "check_interval_minutes")
+    # two.example.com has refresh_interval_minutes = 15
+    clear_url_option(path, "https://two.example.com", "refresh_interval_minutes")
 
-    assert load_config(path).urls[1].check_interval_minutes is None
+    assert load_config(path).urls[1].refresh_interval_minutes is None
     text = path.read_text(encoding="utf-8")
-    assert "check_interval_minutes" not in text
+    assert "refresh_interval_minutes" not in text
     assert "# global comment" in text  # unrelated content preserved
     assert "two.example.com" in text  # the entry itself stays
 
@@ -324,7 +380,7 @@ def test_add_url_entry_appends(tmp_path, write_backend):
     ]
     text = path.read_text(encoding="utf-8")
     assert "# global comment" in text  # existing content preserved by both backends
-    assert "check_interval_minutes = 15" in text  # existing entries untouched
+    assert "refresh_interval_minutes = 15" in text  # existing entries untouched
 
 
 def test_add_url_entry_rejects_duplicate(tmp_path, write_backend):
@@ -605,32 +661,17 @@ def test_bad_per_url_timeout_rejected(tmp_path):
 def test_check_interval_boolean_rejected(tmp_path):
     # TOML "true" parses as a Python bool, which would pass a naive int
     # check; it must still be rejected.
-    with pytest.raises(ConfigError, match="check_interval_minutes"):
+    with pytest.raises(ConfigError, match="refresh_interval_minutes"):
         load_config(
             write_config(
                 tmp_path,
                 """
                 [[urls]]
                 url = "https://example.com"
-                check_interval_minutes = true
+                refresh_interval_minutes = true
                 """,
             )
         )
-
-
-def test_heartbeat_minutes_rejects_bad_values(tmp_path):
-    from servermon.config import DEFAULT_HEARTBEAT_MINUTES, heartbeat_minutes
-
-    cases = [
-        '{"DeviceReportRefreshIntervalMinutes": true}',  # bool is not an int
-        '{"DeviceReportRefreshIntervalMinutes": 0}',  # below minimum
-        '{"DeviceReportRefreshIntervalMinutes": "15"}',  # string is not an int
-        "{not json",
-    ]
-    for i, content in enumerate(cases):
-        settings = tmp_path / f"settings-{i}.json"
-        settings.write_text(content, encoding="utf-8")
-        assert heartbeat_minutes(settings) == DEFAULT_HEARTBEAT_MINUTES, content
 
 
 def test_edit_invalid_toml_rejected_by_tomlkit(tmp_path):
@@ -638,7 +679,7 @@ def test_edit_invalid_toml_rejected_by_tomlkit(tmp_path):
         pytest.skip("tomlkit not available")
     path = write_config(tmp_path, "urls = [")
     with pytest.raises(ConfigError, match="invalid TOML"):
-        set_url_check_interval(path, "https://one.example.com", 60)
+        set_url_refresh_interval(path, "https://one.example.com", 60)
 
 
 def test_remove_url_line_without_urls_header(tmp_path, monkeypatch):
@@ -684,9 +725,9 @@ more regex\"\"\"
     assert path.read_text(encoding="utf-8") == original  # untouched
 
 
-def test_set_url_check_interval_missing_file(tmp_path, write_backend):
+def test_set_url_refresh_interval_missing_file(tmp_path, write_backend):
     with pytest.raises(ConfigError, match="cannot read"):
-        set_url_check_interval(tmp_path / "nope.toml", "https://one.example.com", 60)
+        set_url_refresh_interval(tmp_path / "nope.toml", "https://one.example.com", 60)
 
 
 def test_remove_url_entry_missing_file(tmp_path, write_backend):

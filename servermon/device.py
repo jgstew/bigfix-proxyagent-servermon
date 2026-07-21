@@ -107,7 +107,7 @@ def build_report(
     result: CheckResult,
     sequence: int | None = None,
     device_state: DeviceRecord | None = None,
-    default_interval: int | None = None,
+    refresh_interval: int | None = None,
     computer_name: str | None = None,
 ) -> dict[str, Any]:
     """Build the device report written to ``<device id>.report``.
@@ -177,14 +177,11 @@ def build_report(
     if result.peer_ip is not None:
         http_check["remote ip address"] = result.peer_ip
         report["network"] = network_structure(result.peer_ip)
-    # The effective check cadence in minutes: this URL's configured
-    # check_interval_minutes, else the plugin-wide heartbeat
-    # (DeviceReportRefreshIntervalMinutes from settings.json).
-    interval = entry.check_interval_minutes
-    if interval is None:
-        interval = default_interval
-    if interval is not None:
-        report["refresh interval"] = interval
+    # The effective check cadence in minutes, resolved by the caller
+    # (Config.refresh_interval_for): per-URL refresh_interval_minutes, else the
+    # [settings] default, else 30 - bounded to [1, 10080].
+    if refresh_interval is not None:
+        report["refresh interval"] = refresh_interval
     # Only present when a match string is configured, so relevance can use
     # "exists match found of http check" to distinguish unconfigured from failed.
     if entry.match is not None:

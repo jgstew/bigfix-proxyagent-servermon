@@ -9,8 +9,8 @@ from pathlib import Path
 from typing import Any
 
 import tomllib
-from bigfix_proxyagent.config import (ConfigError, toml_literal,
-                                      write_validated_toml)
+from bigfix_proxyagent.config import (ConfigError, resolve_refresh_interval,
+                                      toml_literal, write_validated_toml)
 
 from ._vendor import load_tomlkit
 from .device import device_id, device_name, device_name_with_port
@@ -20,18 +20,13 @@ __all__ = ["ConfigError", "Config", "UrlEntry", "load_config", "parse_config"]
 DEFAULT_TIMEOUT_SECONDS = 30.0
 DEFAULT_USER_AGENT = "bigfix-proxyagent-servermon"
 
-# Matches the DeviceReportRefreshIntervalMinutes in the settings.json this
-# plugin ships with; used only if that file cannot be read.
-DEFAULT_HEARTBEAT_MINUTES = 60
-PLUGIN_SETTINGS_JSON = Path(__file__).resolve().parent.parent / "settings.json"
-
 _URL_ENTRY_KEYS = {
     "url",
     "match",
     "no_match",
     "verify_tls",
     "timeout_seconds",
-    "check_interval_minutes",
+    "refresh_interval_minutes",
     "measure_network_hops",
 }
 
@@ -45,11 +40,11 @@ class UrlEntry:
     no_match: str | None = None  # case-insensitive regex that must NOT match
     verify_tls: bool = True
     timeout_seconds: float | None = None  # None -> use the global setting
-    # Minimum minutes between checks of this URL; None -> check on every
-    # Proxy Agent refresh. Effectively rounds up to a multiple of the
-    # heartbeat (DeviceReportRefreshIntervalMinutes in settings.json), since
-    # the plugin only runs when the Proxy Agent invokes it.
-    check_interval_minutes: int | None = None
+    # Minutes between checks of this URL; None -> use the [settings] default,
+    # else 30. Bounded to 1-10080 when applied (see Config.refresh_interval_for).
+    # The plugin only runs when the Proxy Agent invokes it, so this effectively
+    # rounds up to a multiple of that heartbeat.
+    refresh_interval_minutes: int | None = None
     # Opt-in network hop count measurement (TTL binary search over plain TCP
     # connects). Rides along with 1 in every HOPS_EVERY_N_CHECKS (6) regular
     # checks of this URL - there is deliberately no separate interval setting.
@@ -61,11 +56,24 @@ class Config:
     urls: tuple[UrlEntry, ...]
     timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS
     user_agent: str = DEFAULT_USER_AGENT
+    # Plugin-wide default check cadence from [settings]; None -> the SDK
+    # default (30 min). A per-URL refresh_interval_minutes overrides it.
+    refresh_interval_minutes: int | None = None
 
     def timeout_for(self, entry: UrlEntry) -> float:
         if entry.timeout_seconds is not None:
             return entry.timeout_seconds
         return self.timeout_seconds
+
+    def refresh_interval_for(self, entry: UrlEntry) -> int:
+        """Effective check cadence (minutes) for one URL: the per-URL value,
+        else the [settings] default, else 30 - bounded to [1, 10080], with an.
+
+        out-of-range low value falling back to the 30-minute default.
+        """
+        return resolve_refresh_interval(
+            entry.refresh_interval_minutes, self.refresh_interval_minutes
+        )
 
     def display_name(self, entry: UrlEntry) -> str:
         """Console "computer name" for an entry: the scheme-less device name,
@@ -78,24 +86,6 @@ class Config:
         base = device_name(entry.url)
         collision = sum(1 for other in self.urls if device_name(other.url) == base) > 1
         return device_name_with_port(entry.url) if collision else base
-
-
-def heartbeat_minutes(settings_path: Path | None = None) -> int:
-    """The Proxy Agent heartbeat (DeviceReportRefreshIntervalMinutes) from
-    the plugin's settings.json - the default check interval for URLs without.
-
-    their own check_interval_minutes.
-    """
-    path = settings_path if settings_path is not None else PLUGIN_SETTINGS_JSON
-    try:
-        with path.open("r", encoding="utf-8") as f:
-            settings = json.load(f)
-        value = settings.get("DeviceReportRefreshIntervalMinutes")
-        if isinstance(value, int) and not isinstance(value, bool) and value >= 1:
-            return value
-    except (OSError, json.JSONDecodeError, UnicodeDecodeError, AttributeError):
-        pass
-    return DEFAULT_HEARTBEAT_MINUTES
 
 
 def load_config(path: Path | str) -> Config:
@@ -124,6 +114,17 @@ def parse_config(raw: dict[str, Any], source: str = "<config>") -> Config:
     user_agent = settings.get("user_agent", DEFAULT_USER_AGENT)
     if not isinstance(user_agent, str) or not user_agent:
         raise ConfigError(f"{source}: settings.user_agent must be a non-empty string")
+
+    # Plugin-wide default cadence. Any integer is accepted; the effective value
+    # is bounded per URL by Config.refresh_interval_for (out-of-range values are
+    # normalized, not rejected).
+    settings_interval = settings.get("refresh_interval_minutes")
+    if settings_interval is not None and (
+        not isinstance(settings_interval, int) or isinstance(settings_interval, bool)
+    ):
+        raise ConfigError(
+            f"{source}: settings.refresh_interval_minutes must be an integer"
+        )
 
     raw_urls = raw.get("urls")
     if not isinstance(raw_urls, list):
@@ -165,6 +166,7 @@ def parse_config(raw: dict[str, Any], source: str = "<config>") -> Config:
         urls=tuple(entries),
         timeout_seconds=float(timeout),
         user_agent=user_agent,
+        refresh_interval_minutes=settings_interval,
     )
 
 
@@ -197,12 +199,15 @@ def _parse_url_entry(item: Any, where: str) -> UrlEntry:
     if timeout is not None and not _is_positive_number(timeout):
         raise ConfigError(f"{where}: 'timeout_seconds' must be a positive number")
 
-    interval = item.get("check_interval_minutes")
+    # Any integer is accepted; the effective value is bounded per URL by
+    # Config.refresh_interval_for (out-of-range values are normalized, not
+    # rejected). Only a non-integer (or bool) is a config error.
+    interval = item.get("refresh_interval_minutes")
     if interval is not None and (
-        not isinstance(interval, int) or isinstance(interval, bool) or interval < 1
+        not isinstance(interval, int) or isinstance(interval, bool)
     ):
         raise ConfigError(
-            f"{where}: 'check_interval_minutes' must be a positive integer"
+            f"{where}: 'refresh_interval_minutes' must be an integer"
         )
 
     return UrlEntry(
@@ -211,7 +216,7 @@ def _parse_url_entry(item: Any, where: str) -> UrlEntry:
         no_match=no_match,
         verify_tls=verify_tls,
         timeout_seconds=None if timeout is None else float(timeout),
-        check_interval_minutes=interval,
+        refresh_interval_minutes=interval,
         measure_network_hops=measure_hops,
     )
 
@@ -228,7 +233,7 @@ def set_url_option(path: Path | str, url: str, key: str, value: object) -> None:
     in place, preserving comments and formatting.
 
     Used by the "set <field> <value>" action commands (including "set refresh
-    interval", via :func:`set_url_check_interval`). ``value`` is a Python
+    interval", via :func:`set_url_refresh_interval`). ``value`` is a Python
     str/int/float/bool. Prefers the vendored tomlkit; falls back to regex line
     editing when it is unavailable. Raises ConfigError if the entry cannot be
     found or the edit would not parse (e.g. a bad regex or a non-positive
@@ -244,13 +249,13 @@ def set_url_option(path: Path | str, url: str, key: str, value: object) -> None:
         _set_url_option_regex(path, url, key, value)
 
 
-def set_url_check_interval(path: Path | str, url: str, minutes: int) -> None:
-    """Set ``check_interval_minutes`` for one ``[[urls]]`` entry (see
+def set_url_refresh_interval(path: Path | str, url: str, minutes: int) -> None:
+    """Set ``refresh_interval_minutes`` for one ``[[urls]]`` entry (see
     :func:`set_url_option`).
 
     Used by the "set refresh interval" action.
     """
-    set_url_option(path, url, "check_interval_minutes", minutes)
+    set_url_option(path, url, "refresh_interval_minutes", minutes)
 
 
 def clear_url_option(path: Path | str, url: str, key: str) -> None:

@@ -59,8 +59,8 @@ def test_full_refresh_writes_all_reports(http_server, dirs):
     assert ok["data source"] == "servermon"
     assert ok["computer name"].endswith("/ok")
     assert not ok["computer name"].startswith("http")
-    # No per-URL interval configured -> the settings.json heartbeat (60).
-    assert ok["refresh interval"] == 60
+    # No per-URL or [settings] interval configured -> the SDK default (30).
+    assert ok["refresh interval"] == 30
 
     missing = read_report(output, f"{http_server}/does-not-exist")
     assert missing["http check"]["response code"] == 404
@@ -255,6 +255,15 @@ def test_last_error_persists_across_runs(http_server, dirs, tmp_path):
     assert first["http check"]["response code"] == 500
     assert first["http check"]["last error"] == first["http check"]["result"]
 
+    # Simulate the next scheduled check arriving (past the 30-min default
+    # cadence) by backdating the recorded last-check time, so the second run
+    # performs a real check instead of replaying the cached report.
+    data = json.loads(state_file.read_text(encoding="utf-8"))
+    data[device_id(f"{http_server}/flaky")]["last check"] = (
+        "Mon, 01 Jan 2001 00:00:00 +0000"
+    )
+    state_file.write_text(json.dumps(data), encoding="utf-8")
+
     # Second run in a new plugin instance: /flaky has recovered, but the
     # previous error (and its time) must still be present in the report.
     plugin = ServerMonPlugin(config, state_file=state_file)
@@ -416,7 +425,7 @@ def test_check_interval_replays_cached_report(http_server, dirs, tmp_path):
         encoding="utf-8",
     )
     config = Config(
-        urls=(UrlEntry(url=url, check_interval_minutes=60),), timeout_seconds=5
+        urls=(UrlEntry(url=url, refresh_interval_minutes=60),), timeout_seconds=5
     )
     plugin = ServerMonPlugin(config, state_file=state_file)
     command_file = write_command(
@@ -469,7 +478,7 @@ def test_version_bump_forces_check_within_interval(http_server, dirs, tmp_path):
         encoding="utf-8",
     )
     config = Config(
-        urls=(UrlEntry(url=url, check_interval_minutes=60),), timeout_seconds=5
+        urls=(UrlEntry(url=url, refresh_interval_minutes=60),), timeout_seconds=5
     )
     plugin = ServerMonPlugin(config, state_file=state_file)
     write_command(pending, {"CommandName": "refresh", "OutputDirectory": str(output)})
@@ -499,7 +508,7 @@ def test_patch_bump_does_not_force_check(http_server, dirs, tmp_path):
         encoding="utf-8",
     )
     config = Config(
-        urls=(UrlEntry(url=url, check_interval_minutes=60),), timeout_seconds=5
+        urls=(UrlEntry(url=url, refresh_interval_minutes=60),), timeout_seconds=5
     )
     plugin = ServerMonPlugin(config, state_file=state_file)
     write_command(pending, {"CommandName": "refresh", "OutputDirectory": str(output)})
@@ -524,7 +533,7 @@ def test_version_downgrade_does_not_force_check(http_server, dirs, tmp_path):
         encoding="utf-8",
     )
     config = Config(
-        urls=(UrlEntry(url=url, check_interval_minutes=60),), timeout_seconds=5
+        urls=(UrlEntry(url=url, refresh_interval_minutes=60),), timeout_seconds=5
     )
     plugin = ServerMonPlugin(config, state_file=state_file)
     write_command(pending, {"CommandName": "refresh", "OutputDirectory": str(output)})
@@ -548,7 +557,7 @@ def test_missing_last_check_version_does_not_force_check(http_server, dirs, tmp_
         json.dumps(_within_interval_state(target)), encoding="utf-8"
     )
     config = Config(
-        urls=(UrlEntry(url=url, check_interval_minutes=60),), timeout_seconds=5
+        urls=(UrlEntry(url=url, refresh_interval_minutes=60),), timeout_seconds=5
     )
     plugin = ServerMonPlugin(config, state_file=state_file)
     write_command(pending, {"CommandName": "refresh", "OutputDirectory": str(output)})
@@ -576,7 +585,7 @@ def test_unparseable_current_version_does_not_force(
         encoding="utf-8",
     )
     config = Config(
-        urls=(UrlEntry(url=url, check_interval_minutes=60),), timeout_seconds=5
+        urls=(UrlEntry(url=url, refresh_interval_minutes=60),), timeout_seconds=5
     )
     plugin = ServerMonPlugin(config, state_file=state_file)
     write_command(pending, {"CommandName": "refresh", "OutputDirectory": str(output)})
@@ -603,7 +612,7 @@ def test_replayed_cached_report_echoes_sequence(http_server, dirs, tmp_path):
         encoding="utf-8",
     )
     config = Config(
-        urls=(UrlEntry(url=url, check_interval_minutes=60),), timeout_seconds=5
+        urls=(UrlEntry(url=url, refresh_interval_minutes=60),), timeout_seconds=5
     )
     plugin = ServerMonPlugin(config, state_file=state_file)
     write_command(
@@ -634,7 +643,7 @@ def test_garbage_last_check_time_checks_again(http_server, dirs, tmp_path):
         json.dumps({device_id(url): {"last check": "not a date"}}), encoding="utf-8"
     )
     config = Config(
-        urls=(UrlEntry(url=url, check_interval_minutes=60),), timeout_seconds=5
+        urls=(UrlEntry(url=url, refresh_interval_minutes=60),), timeout_seconds=5
     )
     plugin = ServerMonPlugin(config, state_file=state_file)
     write_command(pending, {"CommandName": "refresh", "OutputDirectory": str(output)})
@@ -655,7 +664,7 @@ def test_check_interval_without_cache_checks_anyway(http_server, dirs, tmp_path)
         json.dumps({device_id(url): {"last check": now}}), encoding="utf-8"
     )
     config = Config(
-        urls=(UrlEntry(url=url, check_interval_minutes=60),), timeout_seconds=5
+        urls=(UrlEntry(url=url, refresh_interval_minutes=60),), timeout_seconds=5
     )
     plugin = ServerMonPlugin(config, state_file=state_file)
     write_command(pending, {"CommandName": "refresh", "OutputDirectory": str(output)})
@@ -679,7 +688,7 @@ def test_check_interval_elapsed_checks_again(http_server, dirs, tmp_path):
         encoding="utf-8",
     )
     config = Config(
-        urls=(UrlEntry(url=f"{http_server}/ok", check_interval_minutes=60),),
+        urls=(UrlEntry(url=f"{http_server}/ok", refresh_interval_minutes=60),),
         timeout_seconds=5,
     )
     plugin = ServerMonPlugin(config, state_file=state_file)
@@ -694,7 +703,7 @@ def test_action_refresh_ignores_check_interval(http_server, dirs, tmp_path):
     pending, output = dirs
     state_file = tmp_path / "servermon-state.json"
     config = Config(
-        urls=(UrlEntry(url=f"{http_server}/ok", check_interval_minutes=60),),
+        urls=(UrlEntry(url=f"{http_server}/ok", refresh_interval_minutes=60),),
         timeout_seconds=5,
     )
     target = device_id(f"{http_server}/ok")
@@ -758,7 +767,7 @@ def test_set_refresh_interval_command(http_server, dirs, tmp_path):
         next(iter(output.glob("555-0-*.json"))).read_text(encoding="utf-8")
     )
     assert result == [{"CommandID": "555-0", "DeviceID": target, "Result": "Completed"}]
-    assert load_config(config_path).urls[0].check_interval_minutes == 120
+    assert load_config(config_path).urls[0].refresh_interval_minutes == 120
     assert not command_file.is_file()
 
 
@@ -1107,7 +1116,7 @@ def test_set_refresh_interval_invalid_arguments(http_server, dirs, tmp_path):
         next(iter(output.glob("556-0-*.json"))).read_text(encoding="utf-8")
     )
     assert result[0]["Result"] == "Error"
-    assert load_config(config_path).urls[0].check_interval_minutes is None
+    assert load_config(config_path).urls[0].refresh_interval_minutes is None
 
 
 def test_set_refresh_interval_unknown_target(http_server, dirs, tmp_path):
@@ -1133,10 +1142,13 @@ def test_set_refresh_interval_unknown_target(http_server, dirs, tmp_path):
         next(iter(output.glob("558-0-*.json"))).read_text(encoding="utf-8")
     )
     assert result[0]["Result"] == "Error"
-    assert load_config(config_path).urls[0].check_interval_minutes is None
+    assert load_config(config_path).urls[0].refresh_interval_minutes is None
 
 
-def test_set_refresh_interval_rejects_zero(http_server, dirs, tmp_path):
+def test_set_refresh_interval_zero_treated_as_default(http_server, dirs, tmp_path):
+    """0 is out of range (< 1): it is accepted and stored, but the effective
+    interval falls back to the 30-minute default.
+    """
     from servermon.config import load_config
 
     pending, output = dirs
@@ -1158,8 +1170,10 @@ def test_set_refresh_interval_rejects_zero(http_server, dirs, tmp_path):
     result = json.loads(
         next(iter(output.glob("559-0-*.json"))).read_text(encoding="utf-8")
     )
-    assert result[0]["Result"] == "Error"
-    assert load_config(config_path).urls[0].check_interval_minutes is None
+    assert result[0]["Result"] == "Completed"
+    config = load_config(config_path)
+    assert config.urls[0].refresh_interval_minutes == 0
+    assert config.refresh_interval_for(config.urls[0]) == 30
 
 
 def test_set_refresh_interval_without_config_path(http_server, dirs):
@@ -1195,7 +1209,7 @@ def write_two_url_config(tmp_path, http_server):
 
         [[urls]]
         url = "{http_server}/other"
-        check_interval_minutes = 60
+        refresh_interval_minutes = 60
         """,
         encoding="utf-8",
     )
@@ -1549,9 +1563,20 @@ class TestNetworkHopsGating:
         report = read_report(output, f"{http_server}/ok")
         assert report["http check"]["network hops"] == 7
 
-        # Second refresh right away: the regular check runs again, but the
-        # hops measurement waits HOPS_EVERY_N_CHECKS intervals - the cached
-        # value is still re-sent in the report.
+        # Simulate the next scheduled check (past the refresh interval) by
+        # backdating only "last check"; "last hops check" stays recent, so the
+        # regular check runs again but the hops measurement is still within its
+        # HOPS_EVERY_N_CHECKS window - the cached value is re-sent.
+        state_path = tmp_path / "state.json"
+        data = json.loads(state_path.read_text(encoding="utf-8"))
+        data[device_id(f"{http_server}/ok")]["last check"] = (
+            "Mon, 01 Jan 2001 00:00:00 +0000"
+        )
+        state_path.write_text(json.dumps(data), encoding="utf-8")
+
+        # Fresh instance so the backdated state (and cached hop count) is
+        # reloaded from disk.
+        plugin = self._plugin(http_server, tmp_path)
         write_command(
             pending, {"CommandName": "refresh", "OutputDirectory": str(output)}
         )

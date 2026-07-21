@@ -11,8 +11,8 @@ from pathlib import Path
 from typing import Any
 
 from bigfix_proxyagent.config import (Field, Settings, apply_set_command,
-                                      parse_bool, parse_positive_float,
-                                      parse_positive_int, parse_regex)
+                                      parse_bool, parse_int,
+                                      parse_positive_float, parse_regex)
 from bigfix_proxyagent.plugin import ProxyAgentPlugin
 from bigfix_proxyagent.util import major_minor
 
@@ -20,8 +20,8 @@ from . import __version__
 from .checker import CheckResult, check_url, measure_network_hops
 from .command import Command
 from .config import (Config, ConfigError, UrlEntry, add_url_entry,
-                     clear_url_option, heartbeat_minutes, remove_url_entry,
-                     set_url_check_interval, set_url_option)
+                     clear_url_option, remove_url_entry, set_url_option,
+                     set_url_refresh_interval)
 from .device import build_report, device_id, device_name
 from .state import DeviceState
 
@@ -58,9 +58,6 @@ class ServerMonPlugin(ProxyAgentPlugin):
         self.config = config
         self.config_path = config_path  # needed by "set refresh interval"
         self.state = DeviceState(state_file)
-        # Default check cadence, reported via the "refresh interval"
-        # inspector for URLs without their own check_interval_minutes.
-        self.default_interval = heartbeat_minutes()
 
     def commands(self):
         # The whitelisted actionscript commands servermon handles; the command
@@ -94,7 +91,7 @@ class ServerMonPlugin(ProxyAgentPlugin):
         # or a cached replay); used to finalize deferred deletions.
         reported_ids: set[str] = set()
         if not command.command_id:
-            # Honor per-URL check_interval_minutes for Proxy Agent driven
+            # Honor per-URL refresh_interval_minutes for Proxy Agent driven
             # refreshes; action-driven ones (with a commandID) always check.
             # A skipped URL still gets its cached report re-submitted: the
             # Proxy Agent must always receive a report for a refresh (a
@@ -175,11 +172,11 @@ class ServerMonPlugin(ProxyAgentPlugin):
 
     def _process_set_refresh_interval(self, command: Command) -> None:
         """Actionscript "set refresh interval <minutes>": persist a per-URL
-        check_interval_minutes into the servermon.toml config file.
+        refresh_interval_minutes into the servermon.toml config file.
         """
         outcome = "Error"
         entries = self._match_target(command.target_device, command.target_hint)
-        minutes = parse_positive_int(str(command.command_arguments))
+        minutes = parse_int(str(command.command_arguments))
         if not entries:
             log.warning(
                 "%s: no URL in config for device %r",
@@ -188,7 +185,7 @@ class ServerMonPlugin(ProxyAgentPlugin):
             )
         elif minutes is None:
             log.warning(
-                "%s: arguments %r are not a positive integer of minutes",
+                "%s: arguments %r are not an integer of minutes",
                 SET_REFRESH_INTERVAL,
                 command.get("commandarguments"),
             )
@@ -196,10 +193,10 @@ class ServerMonPlugin(ProxyAgentPlugin):
             log.warning("%s: no config file path to update", SET_REFRESH_INTERVAL)
         else:
             try:
-                set_url_check_interval(self.config_path, entries[0].url, minutes)
+                set_url_refresh_interval(self.config_path, entries[0].url, minutes)
                 # Also update the in-memory config so later commands in this
                 # same invocation see (and report) the new interval.
-                updated = replace(entries[0], check_interval_minutes=minutes)
+                updated = replace(entries[0], refresh_interval_minutes=minutes)
                 self.config = replace(
                     self.config,
                     urls=tuple(
@@ -208,7 +205,7 @@ class ServerMonPlugin(ProxyAgentPlugin):
                 )
                 outcome = "Completed"
                 log.info(
-                    "%s: set check_interval_minutes = %d for %s",
+                    "%s: set refresh_interval_minutes = %d for %s",
                     SET_REFRESH_INTERVAL,
                     minutes,
                     entries[0].url,
@@ -224,7 +221,7 @@ class ServerMonPlugin(ProxyAgentPlugin):
         targeted device's ``[[urls]]`` entry in servermon.toml.
 
         Supported fields mirror the config keys: match, no_match,
-        timeout_seconds, check_interval_minutes, verify_tls,
+        timeout_seconds, refresh_interval_minutes, verify_tls,
         measure_network_hops. The value is validated for the field's type
         before writing; an empty value clears the field (reverts it to its
         default). An unknown field, a bad value, an unknown device, or a write
@@ -384,9 +381,7 @@ class ServerMonPlugin(ProxyAgentPlugin):
         )
         # Keep the reported cadence current even when the cached report
         # predates a "set refresh interval" change.
-        report["refresh interval"] = (
-            entry.check_interval_minutes or self.default_interval
-        )
+        report["refresh interval"] = self.config.refresh_interval_for(entry)
         if command.device_report_sequence is not None:
             report["device report sequence"] = command.device_report_sequence
             report["deviceReportSequence"] = command.device_report_sequence
@@ -428,7 +423,7 @@ class ServerMonPlugin(ProxyAgentPlugin):
         except (TypeError, ValueError):
             return True
         elapsed_minutes = (datetime.now().astimezone() - last_dt).total_seconds() / 60
-        interval = entry.check_interval_minutes or self.default_interval
+        interval = self.config.refresh_interval_for(entry)
         # Same 10% slack as _is_due, so heartbeat jitter cannot push every
         # measurement one full check later.
         return elapsed_minutes >= interval * HOPS_EVERY_N_CHECKS * 0.9
@@ -450,9 +445,7 @@ class ServerMonPlugin(ProxyAgentPlugin):
         return current > previous
 
     def _is_due(self, entry: UrlEntry) -> bool:
-        interval = entry.check_interval_minutes
-        if interval is None:
-            return True
+        interval = self.config.refresh_interval_for(entry)
         last_check = self.state.last_check(device_id(entry.url))
         if last_check is None:
             return True
@@ -507,7 +500,7 @@ class ServerMonPlugin(ProxyAgentPlugin):
                 result,
                 sequence=sequence,
                 device_state=device_state,
-                default_interval=self.default_interval,
+                refresh_interval=self.config.refresh_interval_for(entry),
                 computer_name=self.config.display_name(entry),
             )
             # Cache the report so refreshes within this URL's check interval
@@ -566,7 +559,7 @@ _SETTABLE_PARSERS = {
     "match": parse_regex,
     "no_match": parse_regex,
     "timeout_seconds": parse_positive_float,
-    "check_interval_minutes": parse_positive_int,
+    "refresh_interval_minutes": parse_int,
     "verify_tls": parse_bool,
     "measure_network_hops": parse_bool,
 }

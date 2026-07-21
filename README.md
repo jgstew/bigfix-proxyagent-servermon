@@ -75,22 +75,16 @@ Notes:
   - The most recent value is re-sent in every report as `network hops of http check` (absent until the first successful measurement); a failed measurement waits a full 6-check cycle before retrying and keeps the last known value.
   - Hop counts to CDN/anycast sites measure the path to the nearest edge and routes change - treat the value as an estimate.
 
-### Check interval - [settings.json](settings.json)
+### Check interval - `refresh_interval_minutes`
 
-The check frequency is controlled by the Proxy Agent, not the plugin:
+Two schedules are involved:
 
-```json
-"DeviceReportRefreshIntervalMinutes": 60
-```
+- **How often the plugin runs at all** is the Proxy Agent's job, via `DeviceReportRefreshIntervalMinutes` in [settings.json](settings.json) (default 60; restart `BESProxyAgent` after changing it). The plugin cannot check more often than this.
+- **How often each URL is actually checked** is the *refresh interval*, resolved per URL as: the URL's own `refresh_interval_minutes`, else the `[settings]` `refresh_interval_minutes`, else the built-in default of **30 minutes**. It is bounded to **1-10080** minutes (one week): a value above 10080 is capped to 10080, and a value below 1 falls back to the 30-minute default. (Out-of-range values are normalized, not rejected.)
 
-Default is 60 (hourly). Lower it for more frequent checks; restart `BESProxyAgent` after changing it.
+Between checks (a refresh arrives but the interval has not elapsed, tracked in the state file with 10% slack), the plugin skips the HTTP check and **re-submits the cached report** - the Proxy Agent always gets a report for every refresh (a pending action waits on one), only the URL is spared the traffic. The re-submitted report keeps its cached check data (`last check time` shows when the URL was really checked) but advances `last server communication` so it counts as fresh. Action-driven refreshes (a "check now" action) always check regardless.
 
-Individual URLs can opt into a **longer** interval with `check_interval_minutes` in their `[[urls]]` entry:
-
-- Until the interval has elapsed (tracked in the state file, with 10% slack for heartbeat jitter), the plugin skips the actual HTTP check and **re-submits the cached report** instead - the Proxy Agent always gets a report for every refresh (a pending action waits on one), only the URL is spared the traffic.
-- The re-submitted report keeps all its cached check data (`last check time` shows when the URL was really checked) but advances `last server communication` so it counts as fresh.
-- Since the plugin only runs when the Proxy Agent invokes it, a per-URL interval effectively rounds up to a multiple of the heartbeat - set `DeviceReportRefreshIntervalMinutes` to the smallest interval you need and per-URL intervals to larger values.
-- Action-driven refreshes (a "check now" action) always check regardless.
+Set the Proxy Agent heartbeat to the smallest interval you need, then use `refresh_interval_minutes` (globally in `[settings]`, or per URL) to check individual URLs less often.
 
 ### TLS trust store
 
@@ -129,7 +123,7 @@ Plus the plugin-level top-level inspectors:
 
 | Inspector | Type | Example |
 |---|---|---|
-| `refresh interval` | integer | effective check cadence in minutes: the URL's `check_interval_minutes`, else the heartbeat from settings.json |
+| `refresh interval` | integer | effective check cadence in minutes: per-URL `refresh_interval_minutes`, else the `[settings]` default, else 30 (bounded 1-10080) |
 | `last check time` | time | `Wed, 15 Jul 2026 14:00:00 -0400` |
 | `servermon version` | string | `0.1.0` |
 | `in proxy agent context` | boolean | `true` |
@@ -180,8 +174,8 @@ Three ways to trigger an immediate check of a device instead of waiting for the 
 
 The plugin also handles these whitelisted actionscript commands (verified working on a live 10.x Proxy Agent for `set refresh interval`):
 
-- **`set refresh interval <minutes>`** - targeted at a URL device, writes `check_interval_minutes = <minutes>` into that URL's `[[urls]]` entry in servermon.toml (comments and formatting preserved, and the edit is refused if the result would not parse). Reports `Completed` on success, `Error` for a bad argument or unknown device. Takes effect from the next plugin invocation.
-- **`set <field> <value>`** - targeted at a URL device, sets one per-URL option on that URL's `[[urls]]` entry. Supported fields (same names and validation as [servermon.toml](servermon.toml)): `match` / `no_match` (a regex), `timeout_seconds` (positive number), `check_interval_minutes` (positive integer, same as `set refresh interval`), `verify_tls` / `measure_network_hops` (`true`/`false`). For example `set match \d{3} OK` or `set verify_tls false`. The value is validated for the field's type and the write is refused if the result would not parse; reports `Completed` on success, `Error` for an unknown field, a bad value, or an unknown device. Giving **no value** clears the field, reverting it to its default (e.g. `set match` removes the match; `set verify_tls` restores the default `true`). (`set refresh interval` is a distinct whitelisted command the agent matches first; anything else after `set` arrives here.)
+- **`set refresh interval <minutes>`** - targeted at a URL device, writes `refresh_interval_minutes = <minutes>` into that URL's `[[urls]]` entry in servermon.toml (comments and formatting preserved, and the edit is refused if the result would not parse). Any integer is accepted (out-of-range values are normalized when applied - see the check interval bounds above); reports `Completed` on success, `Error` only for a non-integer argument or unknown device. Takes effect from the next plugin invocation.
+- **`set <field> <value>`** - targeted at a URL device, sets one per-URL option on that URL's `[[urls]]` entry. Supported fields (same names and validation as [servermon.toml](servermon.toml)): `match` / `no_match` (a regex), `timeout_seconds` (positive number), `refresh_interval_minutes` (any integer, same as `set refresh interval`; bounded 1-10080 when applied), `verify_tls` / `measure_network_hops` (`true`/`false`). For example `set match \d{3} OK` or `set verify_tls false`. The value is validated for the field's type and the write is refused if the result would not parse; reports `Completed` on success, `Error` for an unknown field, a bad value, or an unknown device. Giving **no value** clears the field, reverting it to its default (e.g. `set match` removes the match; `set verify_tls` restores the default `true`). (`set refresh interval` is a distinct whitelisted command the agent matches first; anything else after `set` arrives here.)
 - **`delete device`** - targeted at a URL device, stops monitoring it. Removal is **deferred by one refresh** (a protocol requirement - see "The action lifecycle" in [ProxyAgents.md](bigfix/reference-files/ProxyAgents.md)): the command reports `Completed`, the device is reported one last time on the next refresh, and then its `[[urls]]` entry is removed from servermon.toml (leaving `urls = []` if it was the last one) and its history dropped from the state file. With no further reports the device then expires from BigFix after `DeviceReportExpirationIntervalHours`; delete the computer from the console for immediate removal (it will not come back).
 
 - **`push link <url>`** - adds a new URL to monitor without touching the plugin host directly:
@@ -225,7 +219,7 @@ cat /tmp/reports/*.report
 
 The plugin's persistent local files are safe to delete - both self-heal on the next refresh. Delete them while the plugin is idle (between refreshes) and let the next refresh rebuild them:
 
-- **`servermon-state.json`** - the plugin's per-device memory (last check time, last error, last URL contact, network hops, cached reports, and any deferred deletion). Deleting it makes every device look new: the next refresh performs a real check of every URL regardless of its `check_interval_minutes`, and **last error**, **last URL contact**, and **network hops** stay blank in the console until each re-occurs (a new failure, the next successful response, and the next hops measurement respectively).
+- **`servermon-state.json`** - the plugin's per-device memory (last check time, last error, last URL contact, network hops, cached reports, and any deferred deletion). Deleting it makes every device look new: the next refresh performs a real check of every URL regardless of its `refresh_interval_minutes`, and **last error**, **last URL contact**, and **network hops** stay blank in the console until each re-occurs (a new failure, the next successful response, and the next hops measurement respectively).
 - **`DeviceReports\*.report`** - the report files the Proxy Agent ingests. Deleting them loses nothing persistent; the next refresh regenerates them. (If you delete one the agent has not yet ingested, only that one refresh's data for that device is lost.)
 
 Two things this does **not** do:

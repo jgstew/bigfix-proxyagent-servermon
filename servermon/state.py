@@ -84,7 +84,7 @@ class DeviceState(DeviceStateStore):
 
     def last_check(self, device_id: str) -> str | None:
         """When this device was last actually checked (any outcome), used to
-        honor per-URL check_interval_minutes across plugin runs.
+        honor per-URL refresh_interval_minutes across plugin runs.
         """
         value = self._data.get(device_id, {}).get("last check")
         return value if isinstance(value, str) else None
