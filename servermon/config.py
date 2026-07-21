@@ -9,10 +9,13 @@ from pathlib import Path
 from typing import Any
 
 import tomllib
+from bigfix_proxyagent.config import (ConfigError, toml_literal,
+                                      write_validated_toml)
 
 from ._vendor import load_tomlkit
 from .device import device_id, device_name, device_name_with_port
-from .util import write_text_atomic
+
+__all__ = ["ConfigError", "Config", "UrlEntry", "load_config", "parse_config"]
 
 DEFAULT_TIMEOUT_SECONDS = 30.0
 DEFAULT_USER_AGENT = "bigfix-proxyagent-servermon"
@@ -31,10 +34,6 @@ _URL_ENTRY_KEYS = {
     "check_interval_minutes",
     "measure_network_hops",
 }
-
-
-class ConfigError(ValueError):
-    """Raised when the configuration file is missing, unreadable, or invalid."""
 
 
 @dataclass(frozen=True)
@@ -386,7 +385,7 @@ def _set_url_option_regex(path: Path, url: str, key: str, value: object) -> None
         len(lines),
     )
 
-    new_line = f"{key} = {_toml_literal(value)}"
+    new_line = f"{key} = {toml_literal(value)}"
     key_re = re.compile(rf"^\s*{re.escape(key)}\s*=")
     for i in range(url_index + 1, end):
         if key_re.match(lines[i]):
@@ -417,21 +416,6 @@ def _clear_url_option_regex(path: Path, url: str, key: str) -> None:
         if not (url_index < i < end and key_re.match(line))
     ]
     _write_validated_config(path, kept)
-
-
-def _toml_literal(value: object) -> str:
-    """Render a Python str/int/float/bool as a TOML value for line editing.
-
-    (The tomlkit backend does this itself.) Strings become basic strings with
-    backslashes and quotes escaped, so a regex like ``\\d+`` round-trips back to
-    the same value through ``tomllib``.
-    """
-    if isinstance(value, bool):  # before int: bool is a subclass of int
-        return "true" if value else "false"
-    if isinstance(value, (int, float)):
-        return repr(value)
-    escaped = str(value).replace("\\", "\\\\").replace('"', '\\"')
-    return f'"{escaped}"'
 
 
 def _remove_url_entry_regex(path: Path, url: str) -> None:
@@ -482,13 +466,12 @@ def _write_validated_config(path: Path, lines: list[str]) -> None:
 
 
 def _write_validated_config_text(path: Path, new_text: str) -> None:
-    # Refuse to write a config that would not load back (stdlib tomllib is
-    # the source of truth for what the plugin will actually parse).
-    try:
-        parse_config(tomllib.loads(new_text), source=str(path))
-    except tomllib.TOMLDecodeError as error:
-        raise ConfigError(f"edit would corrupt {path}: {error}") from error
-    write_text_atomic(path, new_text)
+    # Refuse to write a config that would not load back: the SDK re-parses with
+    # stdlib tomllib (the source of truth for what the plugin will parse) and
+    # then runs servermon's own schema validation before the atomic write.
+    write_validated_toml(
+        path, new_text, lambda parsed: parse_config(parsed, source=str(path))
+    )
 
 
 def _parse_regex_option(item: dict[str, Any], key: str, where: str) -> str | None:

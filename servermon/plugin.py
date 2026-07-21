@@ -3,25 +3,27 @@
 from __future__ import annotations
 
 import email.utils
-import itertools
 import logging
-import os
-import re
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import fields, replace
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from bigfix_proxyagent.config import (Field, Settings, apply_set_command,
+                                      parse_bool, parse_positive_float,
+                                      parse_positive_int, parse_regex)
+from bigfix_proxyagent.plugin import ProxyAgentPlugin
+from bigfix_proxyagent.util import major_minor
+
 from . import __version__
 from .checker import CheckResult, check_url, measure_network_hops
-from .command import Command, CommandError
+from .command import Command
 from .config import (Config, ConfigError, UrlEntry, add_url_entry,
                      clear_url_option, heartbeat_minutes, remove_url_entry,
                      set_url_check_interval, set_url_option)
 from .device import build_report, device_id, device_name
 from .state import DeviceState
-from .util import write_json_atomic
 
 log = logging.getLogger(__name__)
 
@@ -45,12 +47,8 @@ PUSH_LINK = "push link"
 # handler; everything else arrives here as name "set" with "<field> <value>".
 SET = "set"
 
-# Command result files use the spec-suggested "<commandID>-<PID>-<seq>.json"
-# naming so concurrently running plugin instances can never collide.
-_result_seq = itertools.count()
 
-
-class ServerMonPlugin:
+class ServerMonPlugin(ProxyAgentPlugin):
     def __init__(
         self,
         config: Config,
@@ -64,41 +62,18 @@ class ServerMonPlugin:
         # inspector for URLs without their own check_interval_minutes.
         self.default_interval = heartbeat_minutes()
 
-    def process_command_dir(self, command_dir: Path | str) -> None:
-        command_dir = Path(command_dir)
-        if not command_dir.is_dir():
-            raise FileNotFoundError(f"command directory does not exist: {command_dir}")
+    def commands(self):
+        # The whitelisted actionscript commands servermon handles; the command
+        # loop (refresh dispatch, unsupported -> Error, ack) lives in the SDK's
+        # ProxyAgentPlugin base class.
+        return {
+            SET_REFRESH_INTERVAL: self._process_set_refresh_interval,
+            DELETE_DEVICE: self._process_delete_device,
+            PUSH_LINK: self._process_push_link,
+            SET: self._process_set,
+        }
 
-        for path in sorted(command_dir.iterdir()):
-            if not path.is_file():
-                continue
-            if path.suffix.lower() not in (".command", ".json"):
-                # Stray files (editor temp files, Thumbs.db, ...) are not
-                # commands; skip quietly rather than warning every run.
-                log.debug("ignoring non-command file %s", path.name)
-                continue
-            try:
-                command = Command.load(path)
-            except CommandError as error:
-                log.warning("skipping %s: %s", path.name, error)
-                continue
-            self.process_command(command)
-
-    def process_command(self, command: Command) -> None:
-        if command.is_refresh:
-            self._process_refresh(command)
-        elif command.name == SET_REFRESH_INTERVAL:
-            self._process_set_refresh_interval(command)
-        elif command.name == DELETE_DEVICE:
-            self._process_delete_device(command)
-        elif command.name == PUSH_LINK:
-            self._process_push_link(command)
-        elif command.name == SET:
-            self._process_set(command)
-        else:
-            self._process_unsupported(command)
-
-    def _process_refresh(self, command: Command) -> None:
+    def handle_refresh(self, command: Command) -> None:
         if command.target_device:  # partial refresh of a single device
             entries = self._match_target(command.target_device, command.target_hint)
             if not entries:
@@ -109,7 +84,7 @@ class ServerMonPlugin:
                     "refresh for unknown device %r: no matching URL in config",
                     command.target_device,
                 )
-                _remove_command_file(command)
+                self.remove_command_file(command)
                 return
         else:
             entries = list(self.config.urls)
@@ -152,7 +127,7 @@ class ServerMonPlugin:
             entries = due
             if not entries and not new_entries:
                 self._finalize_pending_deletions(reported_ids)
-                _remove_command_file(command)
+                self.remove_command_file(command)
                 return
 
         # Action-driven refreshes ("check now") are the regular check only:
@@ -183,13 +158,12 @@ class ServerMonPlugin:
                 }
                 for _, result, report in rows
             ]
-            _write_command_result(command, results)
+            self.write_command_result(command, results)
             for _, result, report in rows:
                 log.info("check now %s: %s", report["computer name"], result.detail)
         else:
             for _, result, report in rows:
-                report_path = command.output_directory / f"{report['device id']}.report"
-                write_json_atomic(report_path, report)
+                self.write_report(command.output_directory, report)
                 log.info("%s: %s", report["computer name"], result.detail)
             # Now that the post-action refresh has been answered with a
             # report, complete any deferred "delete device" removals.
@@ -197,7 +171,7 @@ class ServerMonPlugin:
         # Deleting the command file acknowledges the refresh is done; if
         # writing a report failed we raise before reaching this, leaving the
         # command in place for the next invocation to retry.
-        _remove_command_file(command)
+        self.remove_command_file(command)
 
     def _process_set_refresh_interval(self, command: Command) -> None:
         """Actionscript "set refresh interval <minutes>": persist a per-URL
@@ -205,7 +179,7 @@ class ServerMonPlugin:
         """
         outcome = "Error"
         entries = self._match_target(command.target_device, command.target_hint)
-        minutes = _parse_positive_int(str(command.get("commandarguments")))
+        minutes = parse_positive_int(str(command.command_arguments))
         if not entries:
             log.warning(
                 "%s: no URL in config for device %r",
@@ -242,17 +216,8 @@ class ServerMonPlugin:
             except ConfigError as error:
                 log.warning("%s failed: %s", SET_REFRESH_INTERVAL, error)
 
-        _write_command_result(
-            command,
-            [
-                {
-                    "CommandID": command.command_id,
-                    "DeviceID": command.target_device,
-                    "Result": outcome,
-                }
-            ],
-        )
-        _remove_command_file(command)
+        self.respond(command, outcome)
+        self.remove_command_file(command)
 
     def _process_set(self, command: Command) -> None:
         """Actionscript "set <field> <value>": set one per-URL option on the
@@ -267,65 +232,48 @@ class ServerMonPlugin:
         """
         outcome = "Error"
         entries = self._match_target(command.target_device, command.target_hint)
-        field, _, raw = str(command.get("commandarguments")).strip().partition(" ")
-        field = field.lower()
-        raw = raw.strip()
         if not entries:
             log.warning("%s: no URL in config for device %r", SET,
                         command.target_device)
-        elif field not in _SETTABLE_FIELDS:
-            log.warning("%s: unsupported field %r", SET, field)
         elif self.config_path is None:
             log.warning("%s: no config file path to update", SET)
         else:
-            outcome = self._apply_set(entries[0], field, raw)
+            entry = entries[0]
+            # The SDK parses and validates "<field> <value>" against _SETTABLE
+            # (unknown/disallowed field, bad value -> Error) and calls back here
+            # only to persist an accepted change.
+            outcome = apply_set_command(
+                command,
+                _SETTABLE,
+                lambda field, value, clearing: self._apply_to_entry(
+                    entry, field, value, clearing
+                ),
+            )
 
-        _write_command_result(
-            command,
-            [
-                {
-                    "CommandID": command.command_id,
-                    "DeviceID": command.target_device,
-                    "Result": outcome,
-                }
-            ],
-        )
-        _remove_command_file(command)
+        self.respond(command, outcome)
+        self.remove_command_file(command)
 
-    def _apply_set(self, entry: UrlEntry, field: str, raw: str) -> str:
-        """Set (non-empty value) or clear (empty value) one option on ``entry``
-        in the config file and in memory; return the command Result string.
+    def _apply_to_entry(
+        self, entry: UrlEntry, field: str, value: object, clearing: bool
+    ) -> None:
+        """Persist one settable option on ``entry`` in the config file and in
+        memory.
+
+        Raises ConfigError if the write fails (reported as Error).
         """
-        clearing = raw == ""
         if clearing:
-            new_value = _URL_ENTRY_DEFAULTS[field]
+            clear_url_option(self.config_path, entry.url, field)
         else:
-            new_value = _SETTABLE_FIELDS[field](raw)
-            if new_value is None:
-                log.warning("%s %s: invalid value %r", SET, field, raw)
-                return "Error"
-        try:
-            if clearing:
-                clear_url_option(self.config_path, entry.url, field)
-            else:
-                set_url_option(self.config_path, entry.url, field, new_value)
-        except ConfigError as error:
-            log.warning("%s %s failed: %s", SET, field, error)
-            return "Error"
+            set_url_option(self.config_path, entry.url, field, value)
         # Update the in-memory config so a later command/refresh in this same
         # invocation sees the new value.
         self.config = replace(
             self.config,
             urls=tuple(
-                replace(e, **{field: new_value}) if e is entry else e
+                replace(e, **{field: value}) if e is entry else e
                 for e in self.config.urls
             ),
         )
-        if clearing:
-            log.info("%s: cleared %s for %s", SET, field, entry.url)
-        else:
-            log.info("%s: %s = %r for %s", SET, field, new_value, entry.url)
-        return "Completed"
 
     def _process_delete_device(self, command: Command) -> None:
         """Actionscript "delete device": stop monitoring the targeted URL.
@@ -359,17 +307,8 @@ class ServerMonPlugin:
                 entries[0].url,
             )
 
-        _write_command_result(
-            command,
-            [
-                {
-                    "CommandID": command.command_id,
-                    "DeviceID": command.target_device,
-                    "Result": outcome,
-                }
-            ],
-        )
-        _remove_command_file(command)
+        self.respond(command, outcome)
+        self.remove_command_file(command)
 
     def _process_push_link(self, command: Command) -> None:
         """Actionscript "push link <url>": add a new [[urls]] entry to
@@ -400,17 +339,8 @@ class ServerMonPlugin:
             except ConfigError as error:
                 log.warning("%s failed: %s", PUSH_LINK, error)
 
-        _write_command_result(
-            command,
-            [
-                {
-                    "CommandID": command.command_id,
-                    "DeviceID": command.target_device,
-                    "Result": outcome,
-                }
-            ],
-        )
-        _remove_command_file(command)
+        self.respond(command, outcome)
+        self.remove_command_file(command)
 
     def _finalize_pending_deletions(self, reported_ids: set[str]) -> None:
         """Complete deferred "delete device" removals for devices that were
@@ -460,8 +390,7 @@ class ServerMonPlugin:
         if command.device_report_sequence is not None:
             report["device report sequence"] = command.device_report_sequence
             report["deviceReportSequence"] = command.device_report_sequence
-        report_path = command.output_directory / f"{report['device id']}.report"
-        write_json_atomic(report_path, report)
+        self.write_report(command.output_directory, report)
         log.info(
             "%s: re-submitted cached report (within check interval)",
             report["computer name"],
@@ -514,8 +443,8 @@ class ServerMonPlugin:
         With no recorded version (state predating this feature) there is no
         baseline, so it returns False and the normal interval applies.
         """
-        previous = _major_minor(self.state.last_check_version(device_id(entry.url)))
-        current = _major_minor(__version__)
+        previous = major_minor(self.state.last_check_version(device_id(entry.url)))
+        current = major_minor(__version__)
         if previous is None or current is None:
             return False
         return current > previous
@@ -549,25 +478,6 @@ class ServerMonPlugin:
                 interval,
             )
         return due
-
-    def _process_unsupported(self, command: Command) -> None:
-        """Servermon devices are monitor-only, so any other action fails."""
-        _write_command_result(
-            command,
-            [
-                {
-                    "CommandID": command.command_id,
-                    "DeviceID": command.target_device,
-                    "Result": "Error",
-                }
-            ],
-        )
-        log.warning(
-            "unsupported command %r for device %s: reported Error",
-            command.name,
-            command.target_device,
-        )
-        _remove_command_file(command)
 
     def check_and_report(
         self,
@@ -647,80 +557,25 @@ class ServerMonPlugin:
         return result, hops
 
 
-def _major_minor(version: str | None) -> tuple[int, int] | None:
-    """The (major, minor) of a version string, or None if it is absent or
-    not of the form ``<int>.<int>[...]`` (e.g. a dev/rc suffix on the minor).
-    """
-    if not version:
-        return None
-    parts = version.split(".")
-    if len(parts) < 2:
-        return None
-    try:
-        return int(parts[0]), int(parts[1])
-    except ValueError:
-        return None
-
-
-def _parse_positive_int(text: str) -> int | None:
-    try:
-        value = int(text.strip())
-    except (AttributeError, ValueError):
-        return None
-    return value if value >= 1 else None
-
-
-def _parse_positive_float(text: str) -> float | None:
-    try:
-        value = float(text.strip())
-    except (AttributeError, ValueError):
-        return None
-    return value if value > 0 else None
-
-
-def _parse_bool(text: str) -> bool | None:
-    lowered = text.strip().lower()
-    if lowered in ("true", "false"):
-        return lowered == "true"
-    return None
-
-
-def _parse_regex(text: str) -> str | None:
-    # Called only with a non-empty value (the handler routes empty to "clear").
-    try:
-        re.compile(text.strip())
-    except re.error:
-        return None
-    return text.strip()
-
-
-# "set <field> <value>" fields, mapped to a parser turning the raw argument
-# text into the typed value (or None if invalid). Keys match UrlEntry fields.
-_SETTABLE_FIELDS = {
-    "match": _parse_regex,
-    "no_match": _parse_regex,
-    "timeout_seconds": _parse_positive_float,
-    "check_interval_minutes": _parse_positive_int,
-    "verify_tls": _parse_bool,
-    "measure_network_hops": _parse_bool,
+# "set <field> <value>" fields, mapped to the SDK parser that turns the raw
+# argument text into the typed value. Keys match UrlEntry fields; each field's
+# default (restored when "set <field>" is given with no value) is the
+# corresponding UrlEntry default. Every field here is settable from BigFix;
+# to lock one to file-only editing, pass Field(..., settable=False).
+_SETTABLE_PARSERS = {
+    "match": parse_regex,
+    "no_match": parse_regex,
+    "timeout_seconds": parse_positive_float,
+    "check_interval_minutes": parse_positive_int,
+    "verify_tls": parse_bool,
+    "measure_network_hops": parse_bool,
 }
-
-# Each settable field's UrlEntry default, restored when "set <field>" is given
-# with no value (clearing the option).
 _URL_ENTRY_DEFAULTS = {
-    f.name: f.default for f in fields(UrlEntry) if f.name in _SETTABLE_FIELDS
+    f.name: f.default for f in fields(UrlEntry) if f.name in _SETTABLE_PARSERS
 }
-
-
-def _write_command_result(command: Command, results: list[dict[str, str]]) -> None:
-    result_name = f"{command.command_id}-{os.getpid()}-{next(_result_seq)}.json"
-    write_json_atomic(command.output_directory / result_name, results)
-
-
-def _remove_command_file(command: Command) -> None:
-    try:
-        os.remove(command.location)
-    except FileNotFoundError:
-        pass  # some Proxy Agent versions clean up command files themselves
-    except OSError as error:
-        log.warning("could not remove command file %s: %s", command.location, error)
+_SETTABLE = Settings(
+    {
+        name: Field(parser, default=_URL_ENTRY_DEFAULTS[name])
+        for name, parser in _SETTABLE_PARSERS.items()
+    }
+)

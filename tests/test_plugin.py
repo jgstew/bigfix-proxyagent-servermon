@@ -558,22 +558,6 @@ def test_missing_last_check_version_does_not_force_check(http_server, dirs, tmp_
     assert read_report(output, url)["http check"]["response code"] == 299  # cached
 
 
-class TestMajorMinor:
-    def test_parses_major_minor_ignoring_patch(self):
-        from servermon.plugin import _major_minor
-
-        assert _major_minor("2.3.0") == (2, 3)
-        assert _major_minor("10.4.7.dev1") == (10, 4)
-
-    def test_returns_none_for_unusable_versions(self):
-        from servermon.plugin import _major_minor
-
-        assert _major_minor(None) is None
-        assert _major_minor("") is None
-        assert _major_minor("2") is None  # no minor component
-        assert _major_minor("2.x") is None  # non-numeric minor
-
-
 def test_unparseable_current_version_does_not_force(
     http_server, dirs, tmp_path, monkeypatch
 ):
@@ -1501,32 +1485,6 @@ def test_empty_entry_lists_are_noops(http_server):
     plugin = make_plugin(http_server)
     assert plugin.check_and_report([]) == []
     assert plugin.run_checks([]) == []
-
-
-def test_command_file_already_removed_is_fine(http_server, dirs):
-    # Some Proxy Agent versions clean up command files themselves; removing
-    # an already-gone file must not raise.
-    from servermon.command import Command
-    from servermon.plugin import _remove_command_file
-
-    pending, _ = dirs
-    command = Command(pending / "gone.json", {"commandname": "refresh"})
-    _remove_command_file(command)  # must not raise
-
-
-def test_unremovable_command_file_is_logged_not_fatal(http_server, dirs, caplog):
-    import logging
-
-    from servermon.command import Command
-    from servermon.plugin import _remove_command_file
-
-    pending, _ = dirs
-    blocker = pending / "cmd.json"
-    blocker.mkdir()  # os.remove on a directory raises OSError
-    command = Command(blocker, {"commandname": "refresh"})
-    with caplog.at_level(logging.WARNING, logger="servermon.plugin"):
-        _remove_command_file(command)  # must not raise
-    assert any("could not remove" in r.message for r in caplog.records)
 
 
 def test_report_write_failure_leaves_command_for_retry(http_server, dirs, tmp_path):

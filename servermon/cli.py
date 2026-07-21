@@ -10,8 +10,9 @@ from __future__ import annotations
 import argparse
 import json
 import logging
-import logging.handlers
 from pathlib import Path
+
+from bigfix_proxyagent.cli import build_base_parser, setup_logging
 
 from . import __version__
 from .config import ConfigError, load_config
@@ -26,30 +27,15 @@ DEFAULT_STATE_FILE = Path(__file__).resolve().parent.parent / "servermon-state.j
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        prog="servermon",
-        description="BigFix Proxy Agent plugin that monitors web server URLs.",
-    )
-    parser.add_argument(
-        "--commandDir",
-        dest="command_dir",
-        metavar="DIR",
-        help="Proxy Agent command directory to process",
-    )
-    parser.add_argument(
-        "--configOptions",
-        dest="config_options",
-        default="",
-        help="options passed by the Proxy Agent (accepted, ignored)",
-    )
-    parser.add_argument(
-        "--config",
-        default=str(DEFAULT_CONFIG),
-        metavar="FILE",
-        help=(
-            "servermon TOML config file; if the given file does not exist, "
-            f"falls back to the default (default: {DEFAULT_CONFIG})"
-        ),
+    # The SDK supplies the standard Proxy Agent arguments (--commandDir,
+    # --configOptions, --config, --state-file, --log-file, --log-level,
+    # --version); servermon adds its own manual-run flags.
+    parser = build_base_parser(
+        "servermon",
+        "BigFix Proxy Agent plugin that monitors web server URLs.",
+        version=__version__,
+        default_config=DEFAULT_CONFIG,
+        default_state_file=DEFAULT_STATE_FILE,
     )
     parser.add_argument(
         "--check",
@@ -69,27 +55,6 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="validate the config file and exit",
     )
-    parser.add_argument(
-        "--state-file",
-        default=str(DEFAULT_STATE_FILE),
-        metavar="FILE",
-        help=(
-            "JSON file remembering each device's most recent error across "
-            f"runs (default: {DEFAULT_STATE_FILE})"
-        ),
-    )
-    parser.add_argument(
-        "--log-file",
-        metavar="FILE",
-        help=f"log to this file, rotating (default: {DEFAULT_LOG_FILE})",
-    )
-    parser.add_argument(
-        "--log-level",
-        default="INFO",
-        choices=["DEBUG", "INFO", "WARNING", "ERROR"],
-        help="log verbosity (default: INFO)",
-    )
-    parser.add_argument("--version", action="version", version=__version__)
     return parser
 
 
@@ -167,24 +132,5 @@ def _run_check(plugin: ServerMonPlugin, *, as_json: bool) -> int:
 
 
 def _setup_logging(level: str, log_file: str | None) -> None:
-    handlers: list[logging.Handler] = [logging.StreamHandler()]
-    path = Path(log_file) if log_file else DEFAULT_LOG_FILE
-    file_error: OSError | None = None
-    try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        handlers.append(
-            logging.handlers.RotatingFileHandler(
-                path, maxBytes=1024 * 1024, backupCount=3, encoding="utf-8"
-            )
-        )
-    except OSError as error:
-        # e.g. no write permission under the service account: keep running
-        # with stderr-only logging rather than failing the whole run.
-        file_error = error
-    logging.basicConfig(
-        level=getattr(logging, level),
-        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-        handlers=handlers,
-    )
-    if file_error is not None:
-        log.warning("cannot write log file %s: %s", path, file_error)
+    # Delegate to the SDK; servermon's default log file is the fallback.
+    setup_logging(level, log_file, default_log_file=DEFAULT_LOG_FILE)

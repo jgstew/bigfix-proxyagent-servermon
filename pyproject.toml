@@ -23,7 +23,10 @@ classifiers = [
   "Topic :: System :: Monitoring",
   "Topic :: System :: Systems Administration",
 ]
-dependencies = []
+# The bigfix-proxyagent SDK provides the Proxy Agent protocol machinery. It is
+# also vendored as a wheel in vendor/ and loaded at startup (see
+# servermon/__init__.py), so a copied plugin folder runs with no pip install.
+dependencies = ["bigfix-proxyagent"]
 dynamic = ["version"]
 
 [project.urls]

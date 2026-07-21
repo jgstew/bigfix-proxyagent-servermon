@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-import hashlib
-import ipaddress
 import re
-import socket
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlsplit
+
+from bigfix_proxyagent.device import stable_device_id
+from bigfix_proxyagent.report import (base_report, local_host_name,
+                                      network_structure)
 
 from . import __version__
 
@@ -20,12 +21,8 @@ DATA_SOURCE = "servermon"
 
 # The computer hosting this proxy agent plugin: generally the Windows BigFix
 # relay running the Proxy Agent. Resolved once at import (a local syscall, no
-# network resolution); it never changes for the life of the process. Falls back
-# to "Unknown" if the hostname cannot be determined.
-try:
-    PLUGIN_HOST = socket.gethostname()
-except OSError:  # pragma: no cover - import-time fallback, cannot re-run import
-    PLUGIN_HOST = "Unknown"
+# network resolution); it never changes for the life of the process.
+PLUGIN_HOST = local_host_name()
 
 _SCHEME_RE = re.compile(r"^[a-z][a-z0-9+.-]*://", re.IGNORECASE)
 
@@ -102,7 +99,7 @@ def device_id(url: str) -> str:
     Only differences that do not change the resource - scheme case, a trailing
     slash - are normalized away (see :func:`_normalized_url`).
     """
-    return hashlib.sha256(_normalized_url(url).encode("utf-8")).hexdigest()
+    return stable_device_id(_normalized_url(url))
 
 
 def build_report(
@@ -123,46 +120,39 @@ def build_report(
     collision-disambiguated name from ``Config.display_name``. When omitted it
     defaults to the plain :func:`device_name`.
     """
-    report: dict[str, Any] = {
-        "device id": device_id(entry.url),
-        "data source": DATA_SOURCE,
-        "computer name": (
-            computer_name if computer_name is not None else device_name(entry.url)
+    # The SDK fills the Proxy-Agent-understood keys (the three mandatory
+    # identity keys, "in proxy agent context", the "proxy agent plugin"
+    # object, "last server communication", "last device report time", and the
+    # echoed sequence); servermon adds the URL/HTTP-specific inspector data.
+    report: dict[str, Any] = base_report(
+        device_id(entry.url),
+        computer_name if computer_name is not None else device_name(entry.url),
+        DATA_SOURCE,
+        last_server_communication=result.checked_at,
+        plugin_version=__version__,
+        plugin_host=PLUGIN_HOST,
+        plugin_last_report_time=result.checked_at,
+        last_device_report_time=(
+            device_state.last_contact if device_state is not None else None
         ),
-        # Reserved-property inspectors from the proxy agent's built-in
-        # inspector list, filled with the closest URL-device equivalents:
-        # the "OS" is the web server software (Server header), its version
-        # is the TLS protocol version (or the plugin version for plain
-        # http), and the DNS name is the URL's hostname.
-        "device type": "Web Server",
-        "dns name": _url_hostname(entry.url) or device_name(entry.url),
-        "operating system": {
-            "name": result.server or DATA_SOURCE,
-            "version": (
-                result.tls_version.removeprefix("TLSv")  # "TLSv1.3" -> "1.3"
-                if result.tls_version
-                else __version__
-            ),
-        },
-        "in proxy agent context": True,
-        # The standard "proxy agent plugin" inspector object (see the built-in
-        # main.inspectors list). "name" is this plugin's name and "host" is the
-        # computer running the Proxy Agent (the BigFix relay); "last report
-        # time" is when this report was produced.
-        "proxy agent plugin": {
-            "name": DATA_SOURCE,
-            "version": __version__,
-            "host": PLUGIN_HOST,
-            "last report time": result.checked_at,
-        },
-        "servermon version": __version__,
-        "last check time": result.checked_at,
-        # The Proxy Agent only treats a report as new if the "effective
-        # device communication" time advances, and it feeds the console's
-        # Last Report Time; reporting the check time guarantees both track
-        # the checks regardless of file modification times.
-        "last server communication": result.checked_at,
+        sequence=sequence,
+    )
+    # Reserved-property inspectors from the proxy agent's built-in inspector
+    # list, filled with the closest URL-device equivalents: the "OS" is the web
+    # server software (Server header), its version is the TLS protocol version
+    # (or the plugin version for plain http), and the DNS name is the hostname.
+    report["device type"] = "Web Server"
+    report["dns name"] = _url_hostname(entry.url) or device_name(entry.url)
+    report["operating system"] = {
+        "name": result.server or DATA_SOURCE,
+        "version": (
+            result.tls_version.removeprefix("TLSv")  # "TLSv1.3" -> "1.3"
+            if result.tls_version
+            else __version__
+        ),
     }
+    report["servermon version"] = __version__
+    report["last check time"] = result.checked_at
     # The check itself, as one nested "http check" inspector object: relevance
     # reads these as "url of http check", "response code of http check", etc.
     # (declared in Inspectors/servermon.inspectors). Optional keys are added
@@ -186,7 +176,7 @@ def build_report(
         http_check["ssl certificate expiration"] = result.cert_expires
     if result.peer_ip is not None:
         http_check["remote ip address"] = result.peer_ip
-        report["network"] = _network_structure(result.peer_ip)
+        report["network"] = network_structure(result.peer_ip)
     # The effective check cadence in minutes: this URL's configured
     # check_interval_minutes, else the plugin-wide heartbeat
     # (DeviceReportRefreshIntervalMinutes from settings.json).
@@ -216,49 +206,9 @@ def build_report(
         # HOPS_EVERY_N_CHECKS checks); re-sent with every report in between.
         if device_state.network_hops is not None:
             http_check["network hops"] = device_state.network_hops
-        # Last time the URL actually answered with an HTTP response. When
-        # present, the Proxy Agent uses it to generate the console's Last
-        # Report Time, so a URL that stops responding shows a visibly stale
-        # Last Report Time while "last server communication" (the check
-        # time) keeps the reports themselves fresh.
-        if device_state.last_contact is not None:
-            report["last device report time"] = device_state.last_contact
-    # Echo the report sequence number from the refresh command back to the
-    # Proxy Agent. The expected key spelling is not publicly documented, so
-    # both styles are included; the extra key is harmless either way.
-    if sequence is not None:
-        report["device report sequence"] = sequence
-        report["deviceReportSequence"] = sequence
+        # "last device report time" (from device_state.last_contact) is set by
+        # base_report above: when present the Proxy Agent uses it for the
+        # console's Last Report Time, so a URL that stops responding shows a
+        # visibly stale Last Report Time while "last server communication" (the
+        # check time) keeps the reports themselves fresh.
     return report
-
-
-def _network_structure(peer_ip: str) -> dict[str, Any]:
-    """Model the remote server's IP as the device's built-in network
-    inspectors ("ip interfaces of network", "adapters of network").
-    """
-    try:
-        parsed = ipaddress.ip_address(peer_ip)
-        loopback = parsed.is_loopback
-        is_ipv6 = parsed.version == 6
-    except ValueError:
-        loopback = False
-        is_ipv6 = ":" in peer_ip
-
-    # "up" mirrors the native <ip interface> inspector: we only build this
-    # structure for a peer we actually connected to, so the interface is up.
-    # Declaring it (Inspectors/servermon.inspectors) lets one relevance
-    # statement - "... up of ip interfaces of network ..." - resolve on both
-    # native and proxied devices.
-    network: dict[str, Any] = {
-        "ip interfaces": [{"address": peer_ip, "loopback": loopback, "up": True}],
-    }
-    if is_ipv6:
-        # The reserved "IPv6 Address" property reads addresses via adapters.
-        network["adapters"] = [
-            {
-                "up": True,
-                "loopback": loopback,
-                "ipv6 interfaces": [{"address": peer_ip}],
-            }
-        ]
-    return network
