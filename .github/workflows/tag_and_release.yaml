@@ -29,12 +29,12 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Read VERSION file
+      - name: Read version
         id: getversion
         run: |
-          VERSION=$(python ./setup.py --version)
+          VERSION=$(python -c "import re,pathlib; print(re.search(r'__version__\s*=\s*[\"\x27]([^\"\x27]+)', pathlib.Path('servermon/__init__.py').read_text()).group(1))")
           echo "VERSION=$VERSION"
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
       # need to fetch tags for next step
       - name: Get tags
@@ -90,13 +90,9 @@ jobs:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
           wait-interval: 50
 
-      - name: Install requirements
+      - name: Install build tool
         if: steps.tagged.outputs.tagged == 1
-        run: if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-
-      - name: Install build tools
-        if: steps.tagged.outputs.tagged == 1
-        run: pip install setuptools wheel build
+        run: pip install build
 
       - name: Run build
         if: steps.tagged.outputs.tagged == 1
