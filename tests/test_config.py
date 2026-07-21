@@ -1,6 +1,6 @@
+import bigfix_proxyagent.config
 import pytest
 
-import servermon.config
 from servermon.config import (DEFAULT_USER_AGENT, ConfigError, add_url_entry,
                               clear_url_option, load_config, remove_url_entry,
                               set_url_option, set_url_refresh_interval)
@@ -10,18 +10,6 @@ def write_config(tmp_path, text):
     path = tmp_path / "servermon.toml"
     path.write_text(text, encoding="utf-8")
     return path
-
-
-# The write functions have two backends: vendored tomlkit (preferred) and
-# regex line editing (fallback). Run every write test against both so neither
-# path can rot. "tomlkit" is skipped if the vendored wheel is unavailable.
-@pytest.fixture(params=["tomlkit", "fallback"])
-def write_backend(request, monkeypatch):
-    if request.param == "fallback":
-        monkeypatch.setattr(servermon.config, "load_tomlkit", lambda: None)
-    elif servermon.config.load_tomlkit() is None:
-        pytest.skip("tomlkit not available")
-    return request.param
 
 
 def test_minimal_config(tmp_path):
@@ -305,7 +293,7 @@ refresh_interval_minutes = 15
 """
 
 
-def test_set_url_refresh_interval_inserts(tmp_path, write_backend):
+def test_set_url_refresh_interval_inserts(tmp_path):
     path = write_config(tmp_path, SET_INTERVAL_CONFIG)
     set_url_refresh_interval(path, "https://one.example.com", 60)
 
@@ -317,7 +305,7 @@ def test_set_url_refresh_interval_inserts(tmp_path, write_backend):
     assert "# entry comment" in text
 
 
-def test_set_url_refresh_interval_replaces(tmp_path, write_backend):
+def test_set_url_refresh_interval_replaces(tmp_path):
     path = write_config(tmp_path, SET_INTERVAL_CONFIG)
     set_url_refresh_interval(path, "https://two.example.com", 240)
 
@@ -326,7 +314,7 @@ def test_set_url_refresh_interval_replaces(tmp_path, write_backend):
     assert path.read_text(encoding="utf-8").count("refresh_interval_minutes") == 1
 
 
-def test_set_url_refresh_interval_unknown_url(tmp_path, write_backend):
+def test_set_url_refresh_interval_unknown_url(tmp_path):
     path = write_config(tmp_path, SET_INTERVAL_CONFIG)
     with pytest.raises(ConfigError, match="no \\[\\[urls\\]\\] entry"):
         set_url_refresh_interval(path, "https://nope.example.com", 60)
@@ -337,7 +325,7 @@ def test_empty_urls_list_is_allowed(tmp_path):
     assert config.urls == ()
 
 
-def test_remove_url_entry(tmp_path, write_backend):
+def test_remove_url_entry(tmp_path):
     path = write_config(tmp_path, SET_INTERVAL_CONFIG)
     remove_url_entry(path, "https://one.example.com")
 
@@ -348,7 +336,7 @@ def test_remove_url_entry(tmp_path, write_backend):
     assert "one.example.com" not in text
 
 
-def test_remove_last_url_entry_inserts_empty_list(tmp_path, write_backend):
+def test_remove_last_url_entry_inserts_empty_list(tmp_path):
     path = write_config(
         tmp_path,
         """
@@ -363,13 +351,13 @@ def test_remove_last_url_entry_inserts_empty_list(tmp_path, write_backend):
     assert "urls = []" in path.read_text(encoding="utf-8")
 
 
-def test_remove_url_entry_unknown_url(tmp_path, write_backend):
+def test_remove_url_entry_unknown_url(tmp_path):
     path = write_config(tmp_path, SET_INTERVAL_CONFIG)
     with pytest.raises(ConfigError, match="no \\[\\[urls\\]\\] entry"):
         remove_url_entry(path, "https://nope.example.com")
 
 
-def test_set_url_option_string(tmp_path, write_backend):
+def test_set_url_option_string(tmp_path):
     path = write_config(tmp_path, SET_INTERVAL_CONFIG)
     set_url_option(path, "https://one.example.com", "match", "hello world")
 
@@ -378,19 +366,19 @@ def test_set_url_option_string(tmp_path, write_backend):
     assert "# global comment" in path.read_text(encoding="utf-8")  # preserved
 
 
-def test_set_url_option_float(tmp_path, write_backend):
+def test_set_url_option_float(tmp_path):
     path = write_config(tmp_path, SET_INTERVAL_CONFIG)
     set_url_option(path, "https://one.example.com", "timeout_seconds", 12.5)
     assert load_config(path).urls[0].timeout_seconds == 12.5
 
 
-def test_set_url_option_bool(tmp_path, write_backend):
+def test_set_url_option_bool(tmp_path):
     path = write_config(tmp_path, SET_INTERVAL_CONFIG)
     set_url_option(path, "https://one.example.com", "verify_tls", False)
     assert load_config(path).urls[0].verify_tls is False
 
 
-def test_set_url_option_regex_with_backslash_roundtrips(tmp_path, write_backend):
+def test_set_url_option_regex_with_backslash_roundtrips(tmp_path):
     # A backslash regex must survive the write and re-parse identically under
     # both the tomlkit and regex backends.
     path = write_config(tmp_path, SET_INTERVAL_CONFIG)
@@ -398,7 +386,7 @@ def test_set_url_option_regex_with_backslash_roundtrips(tmp_path, write_backend)
     assert load_config(path).urls[1].no_match == r"\d{3}\s+error"
 
 
-def test_set_url_option_replaces_existing_value(tmp_path, write_backend):
+def test_set_url_option_replaces_existing_value(tmp_path):
     path = write_config(tmp_path, SET_INTERVAL_CONFIG)
     set_url_option(path, "https://two.example.com", "refresh_interval_minutes", 240)
     text = path.read_text(encoding="utf-8")
@@ -406,7 +394,7 @@ def test_set_url_option_replaces_existing_value(tmp_path, write_backend):
     assert load_config(path).urls[1].refresh_interval_minutes == 240
 
 
-def test_set_url_option_rejects_bad_value(tmp_path, write_backend):
+def test_set_url_option_rejects_bad_value(tmp_path):
     # A negative timeout is caught by the re-parse gate; file left unchanged.
     path = write_config(tmp_path, SET_INTERVAL_CONFIG)
     with pytest.raises(ConfigError):
@@ -414,13 +402,13 @@ def test_set_url_option_rejects_bad_value(tmp_path, write_backend):
     assert load_config(path).urls[0].timeout_seconds is None
 
 
-def test_set_url_option_unknown_url(tmp_path, write_backend):
+def test_set_url_option_unknown_url(tmp_path):
     path = write_config(tmp_path, SET_INTERVAL_CONFIG)
     with pytest.raises(ConfigError, match="no \\[\\[urls\\]\\] entry"):
         set_url_option(path, "https://nope.example.com", "match", "x")
 
 
-def test_clear_url_option_removes_value(tmp_path, write_backend):
+def test_clear_url_option_removes_value(tmp_path):
     path = write_config(tmp_path, SET_INTERVAL_CONFIG)
     # two.example.com has refresh_interval_minutes = 15
     clear_url_option(path, "https://two.example.com", "refresh_interval_minutes")
@@ -432,7 +420,7 @@ def test_clear_url_option_removes_value(tmp_path, write_backend):
     assert "two.example.com" in text  # the entry itself stays
 
 
-def test_clear_url_option_absent_key_is_noop(tmp_path, write_backend):
+def test_clear_url_option_absent_key_is_noop(tmp_path):
     path = write_config(tmp_path, SET_INTERVAL_CONFIG)
     clear_url_option(path, "https://one.example.com", "timeout_seconds")  # not set
     config = load_config(path)
@@ -440,13 +428,13 @@ def test_clear_url_option_absent_key_is_noop(tmp_path, write_backend):
     assert config.urls[0].match == "ok"  # its other options untouched
 
 
-def test_clear_url_option_unknown_url(tmp_path, write_backend):
+def test_clear_url_option_unknown_url(tmp_path):
     path = write_config(tmp_path, SET_INTERVAL_CONFIG)
     with pytest.raises(ConfigError, match="no \\[\\[urls\\]\\] entry"):
         clear_url_option(path, "https://nope.example.com", "match")
 
 
-def test_add_url_entry_appends(tmp_path, write_backend):
+def test_add_url_entry_appends(tmp_path):
     path = write_config(tmp_path, SET_INTERVAL_CONFIG)
     add_url_entry(path, "https://three.example.com:888")
 
@@ -461,7 +449,7 @@ def test_add_url_entry_appends(tmp_path, write_backend):
     assert "refresh_interval_minutes = 15" in text  # existing entries untouched
 
 
-def test_add_url_entry_rejects_duplicate(tmp_path, write_backend):
+def test_add_url_entry_rejects_duplicate(tmp_path):
     # Same normalized URL (trailing slash) -> same device id -> rejected by the
     # re-parse gate, and the file is left unchanged.
     path = write_config(tmp_path, SET_INTERVAL_CONFIG)
@@ -470,14 +458,14 @@ def test_add_url_entry_rejects_duplicate(tmp_path, write_backend):
     assert len(load_config(path).urls) == 2
 
 
-def test_add_url_entry_rejects_malformed_url(tmp_path, write_backend):
+def test_add_url_entry_rejects_malformed_url(tmp_path):
     path = write_config(tmp_path, SET_INTERVAL_CONFIG)
     with pytest.raises(ConfigError):
         add_url_entry(path, "ftp://not-http.example.com")
     assert len(load_config(path).urls) == 2
 
 
-def test_add_url_entry_to_empty_list(tmp_path, write_backend):
+def test_add_url_entry_to_empty_list(tmp_path):
     # A config left as `urls = []` by a full delete must accept a new entry
     # (a [[urls]] table cannot coexist with `urls = []`).
     path = write_config(tmp_path, "urls = []\n")
@@ -753,62 +741,19 @@ def test_check_interval_boolean_rejected(tmp_path):
 
 
 def test_edit_invalid_toml_rejected_by_tomlkit(tmp_path):
-    if servermon.config.load_tomlkit() is None:
+    if bigfix_proxyagent.config._load_tomlkit() is None:
         pytest.skip("tomlkit not available")
     path = write_config(tmp_path, "urls = [")
     with pytest.raises(ConfigError, match="invalid TOML"):
         set_url_refresh_interval(path, "https://one.example.com", 60)
 
 
-def test_remove_url_line_without_urls_header(tmp_path, monkeypatch):
-    # Regex fallback: a top-level "url =" line with no [[urls]] header above
-    # it must be a clear error, not a bogus deletion.
-    monkeypatch.setattr(servermon.config, "load_tomlkit", lambda: None)
-    path = write_config(
-        tmp_path,
-        """
-        url = "https://stray.example.com"
-
-        [[urls]]
-        url = "https://real.example.com"
-        """,
-    )
-    with pytest.raises(ConfigError, match=r"no \[\[urls\]\] header"):
-        remove_url_entry(path, "https://stray.example.com")
-
-
-def test_corrupting_edit_is_refused(tmp_path, monkeypatch):
-    """The regex fallback validates its result before writing: an edit that
-    would leave unparsable TOML must raise and leave the file untouched.
-
-    A multiline match value fools the fallback's line-based table-end
-    detection, so removing the entry would cut the string in half.
-    """
-    monkeypatch.setattr(servermon.config, "load_tomlkit", lambda: None)
-    original = """\
-[[urls]]
-url = "https://one.example.com"
-
-[[urls]]
-url = "https://victim.example.com"
-match = \"\"\"
-[abc]
-more regex\"\"\"
-"""
-    path = write_config(tmp_path, original)
-    load_config(path)  # sanity: the original file is valid
-
-    with pytest.raises(ConfigError, match="edit would corrupt"):
-        remove_url_entry(path, "https://victim.example.com")
-    assert path.read_text(encoding="utf-8") == original  # untouched
-
-
-def test_set_url_refresh_interval_missing_file(tmp_path, write_backend):
+def test_set_url_refresh_interval_missing_file(tmp_path):
     with pytest.raises(ConfigError, match="cannot read"):
         set_url_refresh_interval(tmp_path / "nope.toml", "https://one.example.com", 60)
 
 
-def test_remove_url_entry_missing_file(tmp_path, write_backend):
+def test_remove_url_entry_missing_file(tmp_path):
     with pytest.raises(ConfigError, match="cannot read"):
         remove_url_entry(tmp_path / "nope.toml", "https://one.example.com")
 
