@@ -10,7 +10,8 @@
 # ("DeviceReportRefreshIntervalMinutes" in settings.json).
 
 [settings]
-# Per-request timeout, seconds (can be overridden per URL).
+# Per-request timeout, seconds (overridable per URL). Bounded to 2-900; the
+# built-in default is 45. Optional - omit to use the default.
 timeout_seconds = 30
 # Default check cadence for URLs without their own refresh_interval_minutes
 # (minutes, bounded 1-10080; the built-in default is 30).

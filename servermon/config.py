@@ -10,14 +10,14 @@ from typing import Any
 
 import tomllib
 from bigfix_proxyagent.config import (ConfigError, resolve_refresh_interval,
-                                      toml_literal, write_validated_toml)
+                                      resolve_timeout_seconds, toml_literal,
+                                      write_validated_toml)
 
 from ._vendor import load_tomlkit
 from .device import device_id, device_name, device_name_with_port
 
 __all__ = ["ConfigError", "Config", "UrlEntry", "load_config", "parse_config"]
 
-DEFAULT_TIMEOUT_SECONDS = 30.0
 DEFAULT_USER_AGENT = "bigfix-proxyagent-servermon"
 
 _URL_ENTRY_KEYS = {
@@ -39,7 +39,9 @@ class UrlEntry:
     match: str | None = None  # case-insensitive regex that must match
     no_match: str | None = None  # case-insensitive regex that must NOT match
     verify_tls: bool = True
-    timeout_seconds: float | None = None  # None -> use the global setting
+    # Per-request timeout (seconds); None -> the [settings] default, else 45.
+    # Bounded to 2-900 when applied (see Config.timeout_for).
+    timeout_seconds: float | None = None
     # Minutes between checks of this URL; None -> use the [settings] default,
     # else 30. Bounded to 1-10080 when applied (see Config.refresh_interval_for).
     # The plugin only runs when the Proxy Agent invokes it, so this effectively
@@ -54,16 +56,21 @@ class UrlEntry:
 @dataclass(frozen=True)
 class Config:
     urls: tuple[UrlEntry, ...]
-    timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS
+    # Plugin-wide [settings] defaults; None -> the SDK default (timeout 45s,
+    # refresh 30 min). A per-URL value overrides each.
+    timeout_seconds: float | None = None
     user_agent: str = DEFAULT_USER_AGENT
-    # Plugin-wide default check cadence from [settings]; None -> the SDK
-    # default (30 min). A per-URL refresh_interval_minutes overrides it.
     refresh_interval_minutes: int | None = None
 
     def timeout_for(self, entry: UrlEntry) -> float:
-        if entry.timeout_seconds is not None:
-            return entry.timeout_seconds
-        return self.timeout_seconds
+        """Effective per-request timeout (seconds) for one URL: the per-URL
+        value, else the [settings] default, else 45 - bounded to [2, 900], with.
+
+        an out-of-range low value falling back to the 45-second default.
+        """
+        return resolve_timeout_seconds(
+            entry.timeout_seconds, self.timeout_seconds
+        )
 
     def refresh_interval_for(self, entry: UrlEntry) -> int:
         """Effective check cadence (minutes) for one URL: the per-URL value,
@@ -105,8 +112,11 @@ def parse_config(raw: dict[str, Any], source: str = "<config>") -> Config:
     if not isinstance(settings, dict):
         raise ConfigError(f"{source}: [settings] must be a table")
 
-    timeout = settings.get("timeout_seconds", DEFAULT_TIMEOUT_SECONDS)
-    if not _is_positive_number(timeout):
+    # Plugin-wide default timeout. A positive number is required; the effective
+    # value is bounded per URL by Config.timeout_for (out-of-range positives are
+    # normalized). Absent -> None, so the SDK default (45s) applies.
+    timeout = settings.get("timeout_seconds")
+    if timeout is not None and not _is_positive_number(timeout):
         raise ConfigError(
             f"{source}: settings.timeout_seconds must be a positive number"
         )
@@ -164,7 +174,7 @@ def parse_config(raw: dict[str, Any], source: str = "<config>") -> Config:
 
     return Config(
         urls=tuple(entries),
-        timeout_seconds=float(timeout),
+        timeout_seconds=None if timeout is None else float(timeout),
         user_agent=user_agent,
         refresh_interval_minutes=settings_interval,
     )

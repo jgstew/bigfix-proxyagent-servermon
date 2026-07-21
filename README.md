@@ -48,7 +48,8 @@ If your Management Extender is installed elsewhere, adjust the two paths in [set
 
 ```toml
 [settings]
-timeout_seconds = 30            # per-request timeout, overridable per URL
+timeout_seconds = 30            # per-request timeout (default 45, bounded 2-900), overridable per URL
+# refresh_interval_minutes = 30 # default check cadence (default 30, bounded 1-10080), overridable per URL
 
 [[urls]]
 url = "https://example.com"
@@ -61,6 +62,8 @@ timeout_seconds = 10
 verify_tls = false              # for self-signed certs on internal servers
 measure_network_hops = true     # optional: estimate hop count to the server
 ```
+
+Both `timeout_seconds` and `refresh_interval_minutes` resolve the same way: a per-URL value wins over the `[settings]` default, which wins over the built-in default (timeout 45 s, refresh 30 min). Each is bounded - timeout to 2-900 s, refresh to 1-10080 min - and an out-of-range value is normalized rather than rejected (too-high is capped; too-low falls back to the default).
 
 Notes:
 
@@ -175,7 +178,7 @@ Three ways to trigger an immediate check of a device instead of waiting for the 
 The plugin also handles these whitelisted actionscript commands (verified working on a live 10.x Proxy Agent for `set refresh interval`):
 
 - **`set refresh interval <minutes>`** - targeted at a URL device, writes `refresh_interval_minutes = <minutes>` into that URL's `[[urls]]` entry in servermon.toml (comments and formatting preserved, and the edit is refused if the result would not parse). Any integer is accepted (out-of-range values are normalized when applied - see the check interval bounds above); reports `Completed` on success, `Error` only for a non-integer argument or unknown device. Takes effect from the next plugin invocation.
-- **`set <field> <value>`** - targeted at a URL device, sets one per-URL option on that URL's `[[urls]]` entry. Supported fields (same names and validation as [servermon.toml](servermon.toml)): `match` / `no_match` (a regex), `timeout_seconds` (positive number), `refresh_interval_minutes` (any integer, same as `set refresh interval`; bounded 1-10080 when applied), `verify_tls` / `measure_network_hops` (`true`/`false`). For example `set match \d{3} OK` or `set verify_tls false`. The value is validated for the field's type and the write is refused if the result would not parse; reports `Completed` on success, `Error` for an unknown field, a bad value, or an unknown device. Giving **no value** clears the field, reverting it to its default (e.g. `set match` removes the match; `set verify_tls` restores the default `true`). (`set refresh interval` is a distinct whitelisted command the agent matches first; anything else after `set` arrives here.)
+- **`set <field> <value>`** - targeted at a URL device, sets one per-URL option on that URL's `[[urls]]` entry. Supported fields (same names and validation as [servermon.toml](servermon.toml)): `match` / `no_match` (a regex), `timeout_seconds` (positive number; bounded 2-900 when applied), `refresh_interval_minutes` (any integer, same as `set refresh interval`; bounded 1-10080 when applied), `verify_tls` / `measure_network_hops` (`true`/`false`). For example `set match \d{3} OK` or `set verify_tls false`. The value is validated for the field's type and the write is refused if the result would not parse; reports `Completed` on success, `Error` for an unknown field, a bad value, or an unknown device. Giving **no value** clears the field, reverting it to its default (e.g. `set match` removes the match; `set verify_tls` restores the default `true`). (`set refresh interval` is a distinct whitelisted command the agent matches first; anything else after `set` arrives here.)
 - **`delete device`** - targeted at a URL device, stops monitoring it. Removal is **deferred by one refresh** (a protocol requirement - see "The action lifecycle" in [ProxyAgents.md](bigfix/reference-files/ProxyAgents.md)): the command reports `Completed`, the device is reported one last time on the next refresh, and then its `[[urls]]` entry is removed from servermon.toml (leaving `urls = []` if it was the last one) and its history dropped from the state file. With no further reports the device then expires from BigFix after `DeviceReportExpirationIntervalHours`; delete the computer from the console for immediate removal (it will not come back).
 
 - **`push link <url>`** - adds a new URL to monitor without touching the plugin host directly:

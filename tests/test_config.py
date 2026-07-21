@@ -1,10 +1,9 @@
 import pytest
 
 import servermon.config
-from servermon.config import (DEFAULT_TIMEOUT_SECONDS, DEFAULT_USER_AGENT,
-                              ConfigError, add_url_entry, clear_url_option,
-                              load_config, remove_url_entry, set_url_option,
-                              set_url_refresh_interval)
+from servermon.config import (DEFAULT_USER_AGENT, ConfigError, add_url_entry,
+                              clear_url_option, load_config, remove_url_entry,
+                              set_url_option, set_url_refresh_interval)
 
 
 def write_config(tmp_path, text):
@@ -40,7 +39,10 @@ def test_minimal_config(tmp_path):
     assert entry.url == "https://example.com"
     assert entry.match is None
     assert entry.verify_tls is True
-    assert config.timeout_seconds == DEFAULT_TIMEOUT_SECONDS
+    # No [settings] timeout -> None here; the SDK default (45s) applies via
+    # Config.timeout_for.
+    assert config.timeout_seconds is None
+    assert config.timeout_for(entry) == 45
     assert config.user_agent == DEFAULT_USER_AGENT
 
 
@@ -59,7 +61,7 @@ def test_full_config(tmp_path):
 
             [[urls]]
             url = "http://internal.example.local:8080/health"
-            timeout_seconds = 2
+            timeout_seconds = 120
             verify_tls = false
             """,
         )
@@ -68,9 +70,51 @@ def test_full_config(tmp_path):
     assert config.user_agent == "custom-agent/1.0"
     first, second = config.urls
     assert first.match == "Example Domain"
+    # First URL inherits the [settings] timeout; second overrides it.
     assert config.timeout_for(first) == 5
     assert second.verify_tls is False
-    assert config.timeout_for(second) == 2
+    assert config.timeout_for(second) == 120
+
+
+def test_timeout_for_default_settings_and_clamping(tmp_path):
+    config = load_config(
+        write_config(
+            tmp_path,
+            """
+            [settings]
+            timeout_seconds = 20
+
+            [[urls]]
+            url = "https://a.example.com"
+
+            [[urls]]
+            url = "https://b.example.com"
+            timeout_seconds = 1
+
+            [[urls]]
+            url = "https://c.example.com"
+            timeout_seconds = 5000
+            """,
+        )
+    )
+    a, b, c = config.urls
+    assert config.timeout_for(a) == 20   # inherits [settings]
+    assert config.timeout_for(b) == 45   # below the 2s minimum -> default
+    assert config.timeout_for(c) == 900  # above the 900s maximum -> capped
+
+
+def test_timeout_defaults_to_forty_five_without_settings(tmp_path):
+    config = load_config(
+        write_config(
+            tmp_path,
+            """
+            [[urls]]
+            url = "https://example.com"
+            """,
+        )
+    )
+    assert config.timeout_seconds is None
+    assert config.timeout_for(config.urls[0]) == 45
 
 
 def test_no_match_option(tmp_path):
