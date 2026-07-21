@@ -3,15 +3,25 @@
 # Each [[urls]] entry becomes one proxied device in BigFix, named after the
 # URL with its scheme removed (https://example.com -> "example.com").
 #
-# How often checks run is NOT set here: the Proxy Agent drives the schedule
-# via "DeviceReportRefreshIntervalMinutes" in settings.json (default 60, i.e.
-# hourly). Each refresh checks every URL and reports the results, which also
-# updates each device's Last Report Time in the BigFix console.
+# How often each URL is checked is the "refresh interval" (minutes): a URL's
+# own refresh_interval_minutes, else the [settings] default below, else 30.
+# It is bounded to 1-10080 (one week). This only throttles checks; the Proxy
+# Agent still drives how often the plugin runs at all
+# ("DeviceReportRefreshIntervalMinutes" in settings.json).
 
 [settings]
-# Per-request timeout, seconds (can be overridden per URL).
+# Per-request timeout, seconds (overridable per URL). Bounded to 2-900; the
+# built-in default is 45. Optional - omit to use the default.
 timeout_seconds = 30
+# Default check cadence for URLs without their own refresh_interval_minutes
+# (minutes, bounded 1-10080; the built-in default is 30).
+# refresh_interval_minutes = 30
 # user_agent = "bigfix-proxyagent-servermon"
+# Where to keep per-device state: "json" (default; human-readable, best for
+# development/testing) or "sqlite" (better with many monitored URLs). Selecting
+# "sqlite" migrates an existing JSON state file once; the switch is one-way, and
+# an existing SQLite state file is always used regardless of this setting.
+# state_backend = "json"
 
 [[urls]]
 url = "https://example.com"
@@ -24,7 +34,7 @@ match = "Example Domain"
 
 [[urls]]
 url = "https://forum.bigfix.com/login"
-check_interval_minutes = 360
+refresh_interval_minutes = 360
 match = "an account"
 
 [[urls]]
@@ -32,13 +42,13 @@ url = "https://localhost:44444/fake.html"
 
 [[urls]]
 url = "http://localhost:888/"
-check_interval_minutes = 30
+refresh_interval_minutes = 30
 match = "enter your username and password"
 measure_network_hops = true
 
 [[urls]]
 url = "https://localhost/login"
-check_interval_minutes = 30
+refresh_interval_minutes = 30
 no_match = "Could not connect to the BigFix database"
 verify_tls = false
 measure_network_hops = true
@@ -52,7 +62,7 @@ measure_network_hops = true
 # # refresh). Effectively rounds up to a multiple of the heartbeat
 # # (DeviceReportRefreshIntervalMinutes in settings.json). Can also be set
 # # from BigFix via the "set refresh interval <minutes>" action command.
-# check_interval_minutes = 240
+# refresh_interval_minutes = 240
 # # Estimate the network hop count to the server (TTL binary search over
 # # plain TCP connects) on 1 in every 6 checks of this URL.
 # measure_network_hops = true

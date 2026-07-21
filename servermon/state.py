@@ -4,23 +4,24 @@ Device reports fully replace a device's previous data in BigFix (confirmed
 against a live Proxy Agent), so anything that must outlive one check - the
 most recent error, the last time the URL actually responded - has to be
 remembered by the plugin and re-sent with every report.
+
+Built on the SDK's :class:`~bigfix_proxyagent.state.DeviceStateStore`, which
+provides the JSON backing, merge-on-save concurrency handling, report caching,
+and pending-deletion machinery; this subclass adds servermon's typed
+accessors and the set of fields it persists.
 """
 
 from __future__ import annotations
 
-import json
-import logging
 from dataclasses import dataclass
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from bigfix_proxyagent.state import DeviceStateStore
+
 from . import __version__
-from .util import write_json_atomic
 
 if TYPE_CHECKING:
     from .checker import CheckResult
-
-log = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -42,19 +43,10 @@ class DeviceRecord:
     network_hops: int | None = None
 
 
-class DeviceState:
-    """Per-device history, backed by a JSON file (or in-memory only when no
-    path is given).
+class DeviceState(DeviceStateStore):
+    """Servermon's per-device history (backed by a JSON file, or in-memory
+    only when no path is given).
     """
-
-    def __init__(self, path: Path | None = None) -> None:
-        self.path = path
-        self._data: dict[str, dict[str, Any]] = _read_state(path)
-        # Devices updated/removed by this instance, kept separately so save()
-        # can merge them over the file's current contents instead of
-        # overwriting it wholesale (see save()).
-        self._updates: dict[str, dict[str, Any]] = {}
-        self._removals: set[str] = set()
 
     def record(
         self,
@@ -74,7 +66,7 @@ class DeviceState:
         before the next attempt - but a failed measurement keeps the
         previously known hop count.
         """
-        entry = dict(self._data.get(device_id, {}))
+        entry = self.get(device_id)
         entry["last check"] = result.checked_at
         # The servermon version that produced this check, so a later run can
         # tell whether the plugin was upgraded since (see last_check_version).
@@ -87,13 +79,12 @@ class DeviceState:
             entry["last hops check"] = result.checked_at
             if network_hops is not None:
                 entry["network hops"] = network_hops
-        self._data[device_id] = entry
-        self._updates[device_id] = entry
+        self.update(device_id, entry)
         return _to_record(entry)
 
     def last_check(self, device_id: str) -> str | None:
         """When this device was last actually checked (any outcome), used to
-        honor per-URL check_interval_minutes across plugin runs.
+        honor per-URL refresh_interval_minutes across plugin runs.
         """
         value = self._data.get(device_id, {}).get("last check")
         return value if isinstance(value, str) else None
@@ -114,96 +105,14 @@ class DeviceState:
         value = self._data.get(device_id, {}).get("last hops check")
         return value if isinstance(value, str) else None
 
-    def store_report(self, device_id: str, report: dict[str, Any]) -> None:
-        """Cache the device's report so refreshes within its check interval
-        can re-submit it without performing a new HTTP check.
-        """
-        entry = dict(self._data.get(device_id, {}))
-        entry["last report"] = {
-            key: value
-            for key, value in report.items()
-            if key not in ("device report sequence", "deviceReportSequence")
-        }
-        self._data[device_id] = entry
-        self._updates[device_id] = entry
-
-    def cached_report(self, device_id: str) -> dict[str, Any] | None:
-        report = self._data.get(device_id, {}).get("last report")
-        return dict(report) if isinstance(report, dict) else None
-
-    def mark_pending_deletion(self, device_id: str) -> None:
-        """Flag a device for deletion without removing it yet.
-
-        "delete device" defers the actual removal until the device has been
-        reported one more time, so the Proxy Agent's post-action refresh gets
-        a device report and the action can transition out of "running".
-        """
-        entry = dict(self._data.get(device_id, {}))
-        entry["pending deletion"] = True
-        self._data[device_id] = entry
-        self._updates[device_id] = entry
-
-    def is_pending_deletion(self, device_id: str) -> bool:
-        return bool(self._data.get(device_id, {}).get("pending deletion"))
-
-    def forget(self, device_id: str) -> None:
-        """Drop all history for a device (used to finalize "delete device")."""
-        self._data.pop(device_id, None)
-        self._updates.pop(device_id, None)
-        self._removals.add(device_id)
-
-    def save(self) -> None:
-        if self.path is None:
-            return
-        try:
-            # The Proxy Agent may run several plugin instances concurrently
-            # (never against the same device), so another instance may have
-            # saved since we loaded. Re-read and overlay only this
-            # instance's updates so theirs are not rolled back.
-            current = _read_state(self.path)
-            current.update(self._updates)
-            for device in self._removals:
-                current.pop(device, None)
-            write_json_atomic(self.path, current)
-        except OSError as error:
-            # Losing history must not break monitoring itself.
-            log.warning("could not write state file %s: %s", self.path, error)
-
-
-def _to_record(entry: dict[str, Any]) -> DeviceRecord:
-    error = entry.get("last error")
-    last_error = None
-    if isinstance(error, dict):
-        last_error = LastError(detail=error["detail"], time=error["time"])
-    hops = entry.get("network hops")
-    return DeviceRecord(
-        last_error=last_error,
-        last_contact=entry.get("last contact"),
-        network_hops=hops if isinstance(hops, int) else None,
-    )
-
-
-def _read_state(path: Path | None) -> dict[str, dict[str, Any]]:
-    if path is None or not path.is_file():
-        return {}
-    try:
-        with path.open("r", encoding="utf-8") as f:
-            data = json.load(f)
-    except (OSError, json.JSONDecodeError, UnicodeDecodeError) as error:
-        log.warning("state file %s unreadable, starting fresh: %s", path, error)
-        return {}
-    if not isinstance(data, dict):
-        return {}
-
-    state: dict[str, dict[str, Any]] = {}
-    for device, entry in data.items():
-        if not isinstance(entry, dict):
-            continue
+    def _clean_entry(self, entry: dict[str, Any]) -> dict[str, Any]:
         if isinstance(entry.get("detail"), str) and isinstance(entry.get("time"), str):
             # Migrate the pre-0.2 format, where the entry was the last error.
             entry = {"last error": {"detail": entry["detail"], "time": entry["time"]}}
 
-        cleaned: dict[str, Any] = {}
+        # The base keeps the generic keys ("last report", "pending deletion");
+        # add servermon's own persisted fields.
+        cleaned = super()._clean_entry(entry)
         error = entry.get("last error")
         if (
             isinstance(error, dict)
@@ -222,10 +131,17 @@ def _read_state(path: Path | None) -> dict[str, dict[str, Any]]:
         hops = entry.get("network hops")
         if isinstance(hops, int) and not isinstance(hops, bool):
             cleaned["network hops"] = hops
-        if isinstance(entry.get("last report"), dict):
-            cleaned["last report"] = entry["last report"]
-        if entry.get("pending deletion") is True:
-            cleaned["pending deletion"] = True
-        if cleaned:
-            state[device] = cleaned
-    return state
+        return cleaned
+
+
+def _to_record(entry: dict[str, Any]) -> DeviceRecord:
+    error = entry.get("last error")
+    last_error = None
+    if isinstance(error, dict):
+        last_error = LastError(detail=error["detail"], time=error["time"])
+    hops = entry.get("network hops")
+    return DeviceRecord(
+        last_error=last_error,
+        last_contact=entry.get("last contact"),
+        network_hops=hops if isinstance(hops, int) else None,
+    )

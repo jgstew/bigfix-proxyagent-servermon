@@ -279,21 +279,17 @@ class TestBuildReport:
         assert with_seq["device report sequence"] == 2
         assert with_seq["deviceReportSequence"] == 2
 
-    def test_refresh_interval_uses_configured_value(self):
+    def test_refresh_interval_reported_when_provided(self):
+        # The caller (Config.refresh_interval_for) resolves the effective value
+        # and passes it in; build_report just reports it.
         report = build_report(
-            UrlEntry(url="https://example.com", check_interval_minutes=240),
+            UrlEntry(url="https://example.com"),
             make_result(),
-            default_interval=60,
+            refresh_interval=240,
         )
         assert report["refresh interval"] == 240
 
-    def test_refresh_interval_falls_back_to_default(self):
-        report = build_report(
-            UrlEntry(url="https://example.com"), make_result(), default_interval=60
-        )
-        assert report["refresh interval"] == 60
-
-    def test_refresh_interval_absent_without_default(self):
+    def test_refresh_interval_absent_when_not_provided(self):
         report = build_report(UrlEntry(url="https://example.com"), make_result())
         assert "refresh interval" not in report
 

@@ -4,7 +4,7 @@
   "ConfigurationOptions": "",
   "TargetHintRelevance": "url of http check",
   "CommandFormat": "JSON",
-  "DeviceReportRefreshIntervalMinutes": 60,
+  "DeviceReportRefreshIntervalMinutes": 30,
   "DeviceReportExpirationIntervalHours": 168,
   "SendSettingsToPlugin": false,
   "HandlePartialRefresh": true

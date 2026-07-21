@@ -2,6 +2,7 @@
 DeviceReports/
 LastScanTime.json
 PendingCommands/
+PendingRefreshes/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
@@ -110,3 +111,7 @@ ENV/
 # mypy
 .mypy_cache/
 .DS_Store
+
+# tomlkit ships bundled inside the SDK wheel and is only cached into vendor/ at
+# runtime (see CONTRIBUTING "Editing gotchas"); it must not be committed.
+vendor/tomlkit-*.whl

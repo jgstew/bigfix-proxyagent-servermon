@@ -38,8 +38,8 @@ as complete:
 
 - The **invariants** in CONTRIBUTING are protocol constraints, not style. Treat
   them as correctness requirements.
-- Stay **stdlib-only**. The vendored tomlkit wheel is the sole exception and must
-  never be added to `[project.dependencies]`.
+- Stay **stdlib-only**. tomlkit (bundled inside the vendored SDK wheel) is the
+  sole exception and must never be added to `[project.dependencies]`.
 - A change to reported data must stay in sync across code, inspectors, and
   analysis together (CONTRIBUTING -> "Editing gotchas" lists the three files).
 - Runtime artifacts (`Logs/`, `servermon-state.json`, `__pycache__/`) are

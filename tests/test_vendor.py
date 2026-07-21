@@ -1,33 +1,33 @@
-"""Failure paths of the vendored-wheel loader (the happy path is covered by
-test_config.py's test_vendored_tomlkit_is_loadable).
+"""Servermon._vendor loads tomlkit with the standard plugin precedence (the
+happy path is covered by test_config.py's test_vendored_tomlkit_is_loadable).
 """
-
-import sys
-
-import pytest
 
 import servermon._vendor
 from servermon._vendor import load_tomlkit, vendored_wheel_name
 
 
-@pytest.fixture
-def no_installed_tomlkit(monkeypatch):
-    """Make ``import tomlkit`` fail so the wheel path is exercised."""
-    # A None entry in sys.modules makes the import raise ImportError.
-    monkeypatch.setitem(sys.modules, "tomlkit", None)
-    # Snapshot sys.path so bogus wheel entries do not leak into other tests.
-    monkeypatch.setattr(sys, "path", list(sys.path))
+def test_load_tomlkit_uses_precedence_with_plugin_vendor_dir(monkeypatch):
+    seen = {}
+
+    def fake(name, vendor_dir):
+        seen.update(name=name, vendor_dir=vendor_dir)
+        return "TK"
+
+    monkeypatch.setattr(servermon._vendor, "load_wheel_or_bundled", fake)
+    assert load_tomlkit() == "TK"
+    assert seen["name"] == "tomlkit"
+    assert seen["vendor_dir"] == servermon._vendor.VENDOR_DIR
 
 
-def test_no_wheel_returns_none(tmp_path, monkeypatch, no_installed_tomlkit):
-    monkeypatch.setattr(servermon._vendor, "VENDOR_DIR", tmp_path)
-    assert load_tomlkit() is None
-    assert vendored_wheel_name() is None
+def test_vendored_wheel_name_prefers_loose_wheel(monkeypatch):
+    monkeypatch.setattr(
+        servermon._vendor, "_vendored", lambda name, vendor_dir: "tomlkit-9.9.9.whl"
+    )
+    monkeypatch.setattr(servermon._vendor, "_bundled", lambda name: "tomlkit-0.15.1.whl")
+    assert vendored_wheel_name() == "tomlkit-9.9.9.whl"
 
 
-def test_corrupt_wheel_returns_none(tmp_path, monkeypatch, no_installed_tomlkit):
-    # A corrupt/incompatible wheel must not take the plugin down; callers
-    # fall back to the regex editing path.
-    (tmp_path / "tomlkit-0.0.0-py3-none-any.whl").write_bytes(b"not a zip")
-    monkeypatch.setattr(servermon._vendor, "VENDOR_DIR", tmp_path)
-    assert load_tomlkit() is None
+def test_vendored_wheel_name_falls_back_to_bundled(monkeypatch):
+    monkeypatch.setattr(servermon._vendor, "_vendored", lambda name, vendor_dir: None)
+    monkeypatch.setattr(servermon._vendor, "_bundled", lambda name: "tomlkit-0.15.1.whl")
+    assert vendored_wheel_name() == "tomlkit-0.15.1.whl"

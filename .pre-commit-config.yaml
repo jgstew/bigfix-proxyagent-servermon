@@ -207,7 +207,7 @@ repos:
       - id: pytest
         pass_filenames: false
         always_run: true
-        stages: [manual]
+        # stages: [manual]
         additional_dependencies:
           - lxml
           - pytest-cov
