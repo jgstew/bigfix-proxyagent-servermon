@@ -1,0 +1,276 @@
+<?xml version="1.0"?>
+<!-- vim: set syntax=xml: -->
+<BES>
+  <Wizard>
+    <Title>ServerMon: URL Check Results Dashboard</Title>
+    <UIHooks LaunchType="Document" RequiresAuthoring="false" Menu="Dashboards"></UIHooks>
+    <DefaultPage>DefaultPage</DefaultPage>
+    <Page Name="DefaultPage" DocType="HTML5" >
+        <Title>ServerMon: URL Check Results</Title>
+        <Head><![CDATA[
+            <meta http-equiv="X-UA-Compatible" content="IE=11">
+            <script>window.onerror = function(event, source, lineno, colno, error){ if( -1 != source.toString().indexOf("/wizards.js") && 0 == lineno && 0 == colno) { return true; } };</script>
+        ]]></Head>
+        <HTML><![CDATA[
+<script language="javascript">InsertUtilityDiv();</script>
+
+<style>
+div#wr_datapage > br + br { display: none; }
+body { font-family: "Segoe UI", Tahoma, Arial, sans-serif; font-size: 12px; }
+h2 { margin: 0 0 4px 0; }
+#sm_bar { margin: 8px 0; }
+#sm_bar input[type=text] { width: 320px; padding: 3px; }
+#sm_bar button { padding: 3px 8px; margin-left: 4px; cursor: pointer; }
+#sm_bar button.on { font-weight: bold; border: 2px solid #333; }
+#sm_stats { margin: 6px 0 10px 0; color: #444; }
+#sm_stats span.pill { display: inline-block; padding: 2px 8px; margin-right: 6px; border-radius: 3px; background: #eee; }
+#sm_stats span.bad { background: #f8d7da; }
+#sm_stats span.warn { background: #fff3cd; }
+#sm_stats span.ok { background: #d4edda; }
+#sm_wrap { overflow-x: auto; border: 1px solid #ccc; }
+table#sm_table { border-collapse: collapse; width: 100%; }
+table#sm_table th, table#sm_table td { border: 1px solid #ddd; padding: 3px 6px; text-align: left; white-space: nowrap; vertical-align: top; }
+table#sm_table th { background: #f2f2f2; cursor: pointer; position: relative; }
+table#sm_table th:hover { background: #e6e6e6; }
+table#sm_table tr.rfail td { background: #f8d7da; }
+table#sm_table tr.rwarn td { background: #fff3cd; }
+table#sm_table tr.alt td { background-color: #fafafa; }
+table#sm_table tr.alt.rfail td { background-color: #f8d7da; }
+table#sm_table tr.alt.rwarn td { background-color: #fff3cd; }
+#sm_empty { padding: 10px; color: #666; }
+</style>
+
+<h2>ServerMon: URL Check Results</h2>
+<div id="sm_stats">loading...</div>
+
+<div id="sm_bar">
+  <input type="text" id="sm_search" placeholder="Search all columns..." />
+  <button id="sm_f_all" class="on">All</button>
+  <button id="sm_f_fail">Failing only</button>
+  <button id="sm_f_cert">Cert &lt; 30 days</button>
+  <button id="sm_clear">Clear</button>
+</div>
+
+<div id="sm_wrap">
+  <table id="sm_table">
+    <thead><tr id="sm_head"></tr></thead>
+    <tbody id="sm_body"></tbody>
+  </table>
+</div>
+<div id="sm_empty" style="display:none">No ServerMon results found. Verify the "ServerMon: URL Check Results" analysis is imported, activated, and has reported results.</div>
+
+<!-- Raw (computer id, computer name, property name, value) triples from the analysis. -->
+<table id="sm_raw" style="display:none"><tbody>
+<?relevance html concatenation of (tr of (html concatenation of (tds of (
+  (id of computer of it as string);
+  (name of computer of it);
+  (name of property of it);
+  (concatenation ", " of (values of it))
+)))) of results of bes properties whose(exists source analysis of it and name of source analysis of it = "ServerMon: URL Check Results") ?>
+</tbody></table>
+
+<script language="javascript">
+(function () {
+    "use strict";
+
+    // Column order and sort behavior. "prop" is the analysis property name;
+    // the Device column is the BigFix computer name rather than a property.
+    var COLS = [
+        { key: "__name", label: "Device", num: false },
+        { key: "URL", label: "URL", num: false },
+        { key: "Check Success", label: "Success", num: false },
+        { key: "HTTP Response Code", label: "HTTP Code", num: true },
+        { key: "Response Time (ms)", label: "Resp (ms)", num: true },
+        { key: "SSL Certificate Days Remaining", label: "Cert Days Left", num: true },
+        { key: "SSL Certificate Expires", label: "Cert Expires", num: false },
+        { key: "TLS Version", label: "TLS", num: false },
+        { key: "HTTP Check Result", label: "Result", num: false },
+        { key: "Match Found", label: "Match Found", num: false },
+        { key: "Bad String Found", label: "Bad String", num: false },
+        { key: "Last Check Time", label: "Last Check", num: false },
+        { key: "Last URL Contact Time", label: "Last Responded", num: false },
+        { key: "HTTP Check Last Error", label: "Last Error", num: false },
+        { key: "HTTP Check Last Error Time", label: "Last Error Time", num: false },
+        { key: "Remote IP Address", label: "Remote IP", num: false },
+        { key: "Connect Time (ms)", label: "Connect (ms)", num: true },
+        { key: "Network Hops", label: "Hops", num: true },
+        { key: "Refresh Interval (Minutes)", label: "Refresh (min)", num: true },
+        { key: "ServerMon Version", label: "Version", num: false },
+        { key: "Proxy Agent Plugin", label: "Proxy Agent Plugin", num: false }
+    ];
+
+    var rows = [];        // pivoted data: one object per device
+    var sortCol = 1;      // default sort: URL
+    var sortAsc = true;
+    var filterMode = "all";
+    var searchText = "";
+
+    function text(el) {
+        return (el.textContent !== undefined ? el.textContent : el.innerText) || "";
+    }
+
+    // Pivot the hidden (id, name, property, value) triple table into one row per device.
+    function loadRows() {
+        var map = {}, order = [], i, tr, tds, id, rec;
+        var raw = document.getElementById("sm_raw").getElementsByTagName("tr");
+        for (i = 0; i < raw.length; i++) {
+            tr = raw[i];
+            tds = tr.getElementsByTagName("td");
+            if (tds.length < 4) { continue; }
+            id = text(tds[0]);
+            if (!map[id]) {
+                map[id] = { __id: id, __name: text(tds[1]) };
+                order.push(id);
+            }
+            rec = map[id];
+            rec[text(tds[2])] = text(tds[3]);
+        }
+        for (i = 0; i < order.length; i++) {
+            rows.push(map[order[i]]);
+        }
+    }
+
+    function num(v) {
+        var n = parseFloat(v);
+        return isNaN(n) ? null : n;
+    }
+
+    function isFail(r) {
+        return String(r["Check Success"]).toLowerCase() === "false";
+    }
+
+    function certDays(r) {
+        return num(r["SSL Certificate Days Remaining"]);
+    }
+
+    function haystack(r) {
+        var s = "", i, v;
+        for (i = 0; i < COLS.length; i++) {
+            v = r[COLS[i].key];
+            if (v) { s += v + " "; }
+        }
+        return s.toLowerCase();
+    }
+
+    function visible(r) {
+        var d;
+        if (filterMode === "fail" && !isFail(r)) { return false; }
+        if (filterMode === "cert") {
+            d = certDays(r);
+            if (d === null || d >= 30) { return false; }
+        }
+        if (searchText && haystack(r).indexOf(searchText) === -1) { return false; }
+        return true;
+    }
+
+    function compare(a, b) {
+        var col = COLS[sortCol], av = a[col.key] || "", bv = b[col.key] || "", an, bn, res;
+        if (col.num) {
+            an = num(av); bn = num(bv);
+            if (an === null && bn === null) { res = 0; }
+            else if (an === null) { res = 1; }   // non-numeric ("n/a") always last
+            else if (bn === null) { res = -1; }
+            else { res = an < bn ? -1 : (an > bn ? 1 : 0); }
+            if (an === null || bn === null) { return res; }
+        } else {
+            av = av.toLowerCase(); bv = bv.toLowerCase();
+            res = av < bv ? -1 : (av > bv ? 1 : 0);
+        }
+        return sortAsc ? res : -res;
+    }
+
+    function renderHead() {
+        var head = document.getElementById("sm_head"), i, th;
+        head.innerHTML = "";
+        for (i = 0; i < COLS.length; i++) {
+            th = document.createElement("th");
+            th.appendChild(document.createTextNode(COLS[i].label + (i === sortCol ? (sortAsc ? " (asc)" : " (desc)") : "")));
+            th.setAttribute("data-idx", String(i));
+            th.title = "Click to sort by " + COLS[i].label;
+            th.onclick = (function (idx) {
+                return function () {
+                    if (sortCol === idx) { sortAsc = !sortAsc; } else { sortCol = idx; sortAsc = true; }
+                    render();
+                };
+            })(i);
+            head.appendChild(th);
+        }
+    }
+
+    function renderBody() {
+        var body = document.getElementById("sm_body"), shown = [], i, j, r, tr, td, d, cls;
+        for (i = 0; i < rows.length; i++) {
+            if (visible(rows[i])) { shown.push(rows[i]); }
+        }
+        shown.sort(compare);
+        body.innerHTML = "";
+        for (i = 0; i < shown.length; i++) {
+            r = shown[i];
+            tr = document.createElement("tr");
+            cls = (i % 2 === 1) ? "alt" : "";
+            d = certDays(r);
+            if (isFail(r)) { cls += " rfail"; }
+            else if (d !== null && d < 30) { cls += " rwarn"; }
+            tr.className = cls;
+            for (j = 0; j < COLS.length; j++) {
+                td = document.createElement("td");
+                td.appendChild(document.createTextNode(r[COLS[j].key] || ""));
+                tr.appendChild(td);
+            }
+            body.appendChild(tr);
+        }
+        document.getElementById("sm_empty").style.display = (rows.length === 0) ? "block" : "none";
+        return shown.length;
+    }
+
+    function renderStats(shownCount) {
+        var i, d, fails = 0, warn = 0, expired = 0;
+        for (i = 0; i < rows.length; i++) {
+            if (isFail(rows[i])) { fails++; }
+            d = certDays(rows[i]);
+            if (d !== null) {
+                if (d < 0) { expired++; }
+                else if (d < 30) { warn++; }
+            }
+        }
+        document.getElementById("sm_stats").innerHTML =
+            '<span class="pill">' + rows.length + ' monitored URL(s)</span>' +
+            '<span class="pill ' + (fails ? 'bad' : 'ok') + '">' + fails + ' failing</span>' +
+            '<span class="pill ' + (expired ? 'bad' : 'ok') + '">' + expired + ' expired cert(s)</span>' +
+            '<span class="pill ' + (warn ? 'warn' : 'ok') + '">' + warn + ' cert(s) expiring &lt; 30 days</span>' +
+            '<span class="pill">' + shownCount + ' shown</span>';
+    }
+
+    function render() {
+        renderHead();
+        renderStats(renderBody());
+    }
+
+    function setMode(mode) {
+        filterMode = mode;
+        document.getElementById("sm_f_all").className = (mode === "all") ? "on" : "";
+        document.getElementById("sm_f_fail").className = (mode === "fail") ? "on" : "";
+        document.getElementById("sm_f_cert").className = (mode === "cert") ? "on" : "";
+        render();
+    }
+
+    loadRows();
+    document.getElementById("sm_search").onkeyup = function () {
+        searchText = this.value.toLowerCase();
+        render();
+    };
+    document.getElementById("sm_f_all").onclick = function () { setMode("all"); };
+    document.getElementById("sm_f_fail").onclick = function () { setMode("fail"); };
+    document.getElementById("sm_f_cert").onclick = function () { setMode("cert"); };
+    document.getElementById("sm_clear").onclick = function () {
+        document.getElementById("sm_search").value = "";
+        searchText = "";
+        setMode("all");
+    };
+    render();
+})();
+</script>
+        ]]></HTML>
+        </Page>
+    </Wizard>
+</BES>
