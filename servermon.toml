@@ -31,6 +31,11 @@ match = "Example Domain"
 # Optional: report failure if this case-insensitive regex matches the
 # response body or headers (reachable, but serving a known-bad page).
 # no_match = "could not connect to( the)? database"
+# Optional: require this exact HTTP status code instead of the default
+# "2xx or 3xx" range. Use this when a non-2xx/3xx response is the expected,
+# healthy outcome - e.g. a login page that should reject an unauthenticated
+# request with 401 rather than serve it with 200.
+# expected_status = 401
 
 [[urls]]
 url = "https://forum.bigfix.com/login"

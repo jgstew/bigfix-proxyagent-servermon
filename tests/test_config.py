@@ -181,6 +181,50 @@ def test_no_match_invalid_regex_rejected(tmp_path):
         )
 
 
+def test_expected_status_option(tmp_path):
+    config = load_config(
+        write_config(
+            tmp_path,
+            """
+            [[urls]]
+            url = "https://example.com"
+            expected_status = 401
+            """,
+        )
+    )
+    assert config.urls[0].expected_status == 401
+
+
+def test_expected_status_defaults_to_none(tmp_path):
+    config = load_config(
+        write_config(
+            tmp_path,
+            """
+            [[urls]]
+            url = "https://example.com"
+            """,
+        )
+    )
+    assert config.urls[0].expected_status is None
+
+
+@pytest.mark.parametrize(
+    "toml_value", ["0", "99", "600", "1000", "true", '"401"', "401.5"]
+)
+def test_expected_status_must_be_a_valid_status_code(tmp_path, toml_value):
+    with pytest.raises(ConfigError, match="expected_status"):
+        load_config(
+            write_config(
+                tmp_path,
+                f"""
+                [[urls]]
+                url = "https://example.com"
+                expected_status = {toml_value}
+                """,
+            )
+        )
+
+
 def test_check_interval_option(tmp_path):
     config = load_config(
         write_config(

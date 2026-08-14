@@ -72,6 +72,27 @@ def test_http_500(http_server):
     assert result.success is False
 
 
+def test_expected_status_matching_error_response_succeeds(http_server):
+    result = check(f"{http_server}/does-not-exist", expected_status=404)
+    assert result.status_code == 404
+    assert result.success is True
+    assert result.detail.startswith("OK: HTTP 404")
+
+
+def test_expected_status_mismatch_fails(http_server):
+    result = check(f"{http_server}/ok", expected_status=401)
+    assert result.status_code == 200
+    assert result.success is False
+    assert "expected HTTP 401" in result.detail
+
+
+def test_expected_status_combined_with_match(http_server):
+    # A 401 login page can still be required to contain specific text.
+    result = check(f"{http_server}/does-not-exist", expected_status=404, match="nope")
+    assert result.success is False
+    assert result.match_found is False
+
+
 def test_redirect_followed(http_server):
     result = check(f"{http_server}/redirect")
     assert result.status_code == 200

@@ -398,13 +398,19 @@ def _from_response(
         if bad_string_found:
             match_note += f"; no_match pattern {entry.no_match!r} found in {location}"
 
-    status_ok = 200 <= status < 400
+    status_note = ""
+    if entry.expected_status is not None:
+        status_ok = status == entry.expected_status
+        if not status_ok:
+            status_note = f"; expected HTTP {entry.expected_status}"
+    else:
+        status_ok = 200 <= status < 400
     success = status_ok and match_found is not False and bad_string_found is not True
 
     reason = http.client.responses.get(status, "")
     status_text = f"HTTP {status} {reason}".rstrip()
     prefix = "OK" if success else "FAILED"
-    detail = f"{prefix}: {status_text} ({elapsed_ms} ms){match_note}"
+    detail = f"{prefix}: {status_text}{status_note} ({elapsed_ms} ms){match_note}"
 
     return CheckResult(
         url=entry.url,

@@ -28,6 +28,7 @@ _URL_ENTRY_KEYS = {
     "timeout_seconds",
     "refresh_interval_minutes",
     "measure_network_hops",
+    "expected_status",
 }
 
 
@@ -38,6 +39,11 @@ class UrlEntry:
     url: str
     match: str | None = None  # case-insensitive regex that must match
     no_match: str | None = None  # case-insensitive regex that must NOT match
+    # Exact HTTP status code required for success; None -> the default "2xx or
+    # 3xx" range. Set this when a non-2xx/3xx response is the expected,
+    # healthy outcome (e.g. a login page that correctly returns 401 for an
+    # unauthenticated request).
+    expected_status: int | None = None
     verify_tls: bool = True
     # Per-request timeout (seconds); None -> the [settings] default, else 45.
     # Bounded to 2-900 when applied (see Config.timeout_for).
@@ -211,6 +217,16 @@ def _parse_url_entry(item: Any, where: str) -> UrlEntry:
     match = _parse_regex_option(item, "match", where)
     no_match = _parse_regex_option(item, "no_match", where)
 
+    expected_status = item.get("expected_status")
+    if expected_status is not None and (
+        not isinstance(expected_status, int)
+        or isinstance(expected_status, bool)
+        or not 100 <= expected_status <= 599
+    ):
+        raise ConfigError(
+            f"{where}: 'expected_status' must be an HTTP status code (100-599)"
+        )
+
     verify_tls = item.get("verify_tls", True)
     if not isinstance(verify_tls, bool):
         raise ConfigError(f"{where}: 'verify_tls' must be true or false")
@@ -238,6 +254,7 @@ def _parse_url_entry(item: Any, where: str) -> UrlEntry:
         url=url,
         match=match,
         no_match=no_match,
+        expected_status=expected_status,
         verify_tls=verify_tls,
         timeout_seconds=None if timeout is None else float(timeout),
         refresh_interval_minutes=interval,
