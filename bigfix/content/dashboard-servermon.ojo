@@ -47,7 +47,7 @@ table#sm_table tr.alt.rwarn td { background-color: #fff3cd; }
   <input type="text" id="sm_search" placeholder="Search all columns..." />
   <button id="sm_f_all" class="on">All</button>
   <button id="sm_f_fail">Failing only</button>
-  <button id="sm_f_cert">Cert &lt; 30 days</button>
+  <button id="sm_f_cert">Cert expiring soon</button>
   <button id="sm_clear">Clear</button>
 </div>
 
@@ -99,6 +99,7 @@ table#sm_table tr.alt.rwarn td { background-color: #fff3cd; }
         { key: "Proxy Agent Plugin", label: "Proxy Agent Plugin", num: false }
     ];
 
+    var CERT_FILTER_DAYS = 90;
     var rows = [];        // pivoted data: one object per device
     var sortCol = 1;      // default sort: URL
     var sortAsc = true;
@@ -157,7 +158,7 @@ table#sm_table tr.alt.rwarn td { background-color: #fff3cd; }
         if (filterMode === "fail" && !isFail(r)) { return false; }
         if (filterMode === "cert") {
             d = certDays(r);
-            if (d === null || d >= 30) { return false; }
+            if (d === null || d >= CERT_FILTER_DAYS) { return false; }
         }
         if (searchText && haystack(r).indexOf(searchText) === -1) { return false; }
         return true;
@@ -210,7 +211,7 @@ table#sm_table tr.alt.rwarn td { background-color: #fff3cd; }
             cls = (i % 2 === 1) ? "alt" : "";
             d = certDays(r);
             if (isFail(r)) { cls += " rfail"; }
-            else if (d !== null && d < 30) { cls += " rwarn"; }
+            else if (d !== null && d < CERT_FILTER_DAYS) { cls += " rwarn"; }
             tr.className = cls;
             for (j = 0; j < COLS.length; j++) {
                 td = document.createElement("td");
@@ -230,14 +231,14 @@ table#sm_table tr.alt.rwarn td { background-color: #fff3cd; }
             d = certDays(rows[i]);
             if (d !== null) {
                 if (d < 0) { expired++; }
-                else if (d < 30) { warn++; }
+                else if (d < CERT_FILTER_DAYS) { warn++; }
             }
         }
         document.getElementById("sm_stats").innerHTML =
             '<span class="pill">' + rows.length + ' monitored URL(s)</span>' +
             '<span class="pill ' + (fails ? 'bad' : 'ok') + '">' + fails + ' failing</span>' +
             '<span class="pill ' + (expired ? 'bad' : 'ok') + '">' + expired + ' expired cert(s)</span>' +
-            '<span class="pill ' + (warn ? 'warn' : 'ok') + '">' + warn + ' cert(s) expiring &lt; 30 days</span>' +
+            '<span class="pill ' + (warn ? 'warn' : 'ok') + '">' + warn + ' cert(s) expiring &lt; ' + CERT_FILTER_DAYS + ' days</span>' +
             '<span class="pill">' + shownCount + ' shown</span>';
     }
 
@@ -253,6 +254,12 @@ table#sm_table tr.alt.rwarn td { background-color: #fff3cd; }
         document.getElementById("sm_f_cert").className = (mode === "cert") ? "on" : "";
         render();
     }
+
+    (function setCertButtonLabel() {
+        var btn = document.getElementById("sm_f_cert");
+        btn.innerHTML = "";
+        btn.appendChild(document.createTextNode("Cert < " + CERT_FILTER_DAYS + " days"));
+    })();
 
     loadRows();
     document.getElementById("sm_search").onkeyup = function () {
