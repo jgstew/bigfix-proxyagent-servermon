@@ -1,4 +1,4 @@
-lexClass: 
+lexClass:
 	name			= global
 	parent:file		= <*.ActionScript>
 
@@ -11,11 +11,11 @@ lexClass:
 	txt:colorFG	= 0x00A000
 	DisplayName		= 'Comment (Single-Line)'
 
-lexClass: 
+lexClass:
 	name			= string
 	parent:dyn		= global
 	start:Tag		= '"'
-	skip:Tag		= '\\"', '\\\r\n', '\\\n\r', '\\\n', '\\\r'	
+	skip:Tag		= '\\"', '\\\r\n', '\\\n\r', '\\\n', '\\\r'
 	end:Tag			= '"', @eol
 	txt:colorFG		= 0xE00000
 	DisplayName		= 'String (Double Quotes)'
@@ -166,7 +166,7 @@ lexClass:
 	token:tag = 'reset a2a agent'
 	token:tag = 'agent interface'
 	token:tag = 'action uses file encoding'
-	
+
 	token:tag = 'binary name delete'
 	token:tag = 'binary name copy'
 	token:tag = 'binary name move'
@@ -409,4 +409,3 @@ lexClass:
 	token:tag = 'wipe internal storage'
 	token:tag = 'wipe sd card'
 	token:tag = 'wipe traveler data'
-	
