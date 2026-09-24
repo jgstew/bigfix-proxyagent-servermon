@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<BES xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="BES.xsd">
+	<Fixlet>
+		<Title>Install BigFix Proxy Agent (Version 11.0.6) - Customized</Title>
+		<Description><![CDATA[<DIV class=FixletMessage>
+<TABLE>
+<TBODY>
+<TR>
+<TD>
+<P><FONT size=2><B>This fixlet installs the Proxy Agent on windows machines already running a Relay. The Proxy Agent is an enabling service used by Management Extenders to provide a connection to the BigFix system for devices that cannot run a native agent. <BR>The requirements for an endpoint running a Proxy agent are higher than for a regular windows relay. Please check documentation for this information.</P>
+<UL>
+<LI>
+<P><STRONG>Note: </STRONG>This Proxy Agent supports Windows 10/Windows Server 2016 and above.</P></LI></UL></FONT></B></TD></TR></TBODY></TABLE></DIV>]]></Description>
+		<Relevance>(if exists property "in proxy agent context" then ( not in proxy agent context ) else true )</Relevance>
+		<Relevance>windows of operating system</Relevance>
+		<Relevance><![CDATA[version of client >= "9"]]></Relevance>
+		<Relevance><![CDATA[((windows of it) AND (version of it >= "10.0")) of operating system]]></Relevance>
+		<Relevance><![CDATA[exists (relay service|main gather service) whose ((version of it >= "11.0.6") AND (running of it = true))]]></Relevance>
+		<Relevance>not exists (proxy agent service)</Relevance>
+		<Category>Upgrade</Category>
+		<DownloadSize>7302930</DownloadSize>
+		<Source>HCL</Source>
+		<SourceID><![CDATA[<Unspecified>]]></SourceID>
+		<SourceReleaseDate>2026-03-31</SourceReleaseDate>
+		<SourceSeverity><![CDATA[<Unspecified>]]></SourceSeverity>
+		<CVENames></CVENames>
+		<SANSID></SANSID>
+		<MIMEField>
+			<Name>x-fixlet-domain_attributes</Name>
+			<Value>BES Deploy Proxy Agent</Value>
+		</MIMEField>
+		<MIMEField>
+			<Name>x-fixlet-modification-time</Name>
+			<Value>Thu, 24 Sep 2026 15:48:39 +0000</Value>
+		</MIMEField>
+		<Domain>BESC</Domain>
+		<DefaultAction ID="Action1">
+			<Description>
+				<PreLink>Click </PreLink>
+				<Link>here</Link>
+				<PostLink> to install the BigFix Proxy Agent 11.0.6.</PostLink>
+			</Description>
+			<ActionScript MIMEType="application/x-Fixlet-Windows-Shell"><![CDATA[prefetch BESProxyAgent.bfz sha1:a5aca034c69d7558764f09f8688de0c75e621a99 size:7302930 http://software.bigfix.com/download/bes/110/BigFix-BES-ProxyAgent-11.0.6.137.bfz sha256:42e83c4d25915812eabe1868255d4afd737241f656b4e463c4afc03df5c3776b
+// If the next line fails, there is not enough free space to complete this action
+continue if {(if (exists variable "temp" of it) then (7302930 < free space of drive of folder(value of variable "temp" of it)) else true) of environment}
+
+if {exists parent folder of parent folder of file of relay service}
+	parameter "proxyFolder"="{parent folder of parent folder of file of (relay service|main gather service)}\Management Extender"
+else
+	parameter "proxyFolder"="{parent folder of file of (relay service|main gather service)}\Management Extender"
+endif
+
+parameter "proxyLogFolder"="{parameter "proxyFolder"}\__Logs"
+folder create "{parameter "proxyLogFolder"}"
+extract BESProxyAgent.bfz "{parameter "proxyFolder"}"
+continue if {"11.0.6.137" = version of file "ProxyAgent.exe" of folder (parameter "proxyFolder")}
+copy "{(parent folder of parent folder of client folder of current site) as string}\ActionSite.afxm" "{parameter "proxyFolder"}\ActionSite.afxm"
+copy "{(parent folder of client folder of current site) as string}\actionsite\ActionSiteEpoch.txt" "{parameter "proxyFolder"}\ActionSiteEpoch.txt"
+regset [HKEY_LOCAL_MACHINE\Software\BigFix\ProxyAgent] "DataDirectory"="{escape of (parameter "proxyFolder" as string)}"
+regset [HKEY_LOCAL_MACHINE\Software\BigFix\ProxyAgent] "LogPath"="{escape of (parameter "proxyLogFolder" as string & "\ProxyAgent.log")}"
+regset [HKEY_LOCAL_MACHINE\Software\BigFix\ProxyAgent] "EnabledLogs"="critical"
+regset [HKEY_LOCAL_MACHINE\Software\BigFix\ProxyAgent] "LogOn"=dword:00000001
+waithidden "{pathname of system folder}\cmd.exe" /C sc create BESProxyAgent binPath= "\"{parameter "proxyFolder"}\ProxyAgent.exe\"" start= auto DisplayName= "BES Proxy Agent"
+continue if {exists true whose (if true then (exit code of action = 0) else false)}
+waithidden "{pathname of system folder}\cmd.exe" /C sc description BESProxyAgent "Enables BigFix to be able to use Management Extenders"
+continue if {exists true whose (if true then (exit code of action = 0) else false)}
+waithidden "{pathname of system folder}\cmd.exe" /C net start BESProxyAgent
+continue if {exists true whose (if true then (exit code of action = 0) else false)}
+delete __Download\BESProxyAgent.bfz]]></ActionScript>
+			<SuccessCriteria Option="CustomRelevance">not exists proxy agent service</SuccessCriteria>
+		</DefaultAction>
+	</Fixlet>
+</BES>
