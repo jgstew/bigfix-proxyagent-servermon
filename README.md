@@ -10,6 +10,8 @@ A BigFix Management Extender (Proxy Agent) plugin that monitors web servers / UR
 
 The plugin protocol is modeled on [bigfix/trask](https://github.com/bigfix/trask), rewritten in modern Python (3.11+, standard library only - no dependencies). For a general reference on how Proxy Agent plugins work (with this repo as the example), see [ProxyAgents.md](bigfix/reference-files/ProxyAgents.md).
 
+New to this plugin? [bigfix/lab/](bigfix/lab/README.md) is a ~60 minute hands-on lab: install it, monitor a few URLs, then manage the whole thing from the BigFix console.
+
 ## How it works
 
 The Proxy Agent drives everything: every `DeviceReportRefreshIntervalMinutes` (default **60**, i.e. hourly) it drops `refresh` command files into `PendingCommands\` under the plugin folder and invokes this plugin with `--commandDir`. The plugin checks the configured URL(s) (in parallel), writes one `<device id>.report` JSON file per URL into the output directory (`DeviceReports\`), and deletes each command file to acknowledge it was processed. The Proxy Agent ingests the reports and reports the devices to the BES root server - which is what sets each device's Last Report Time to the check time.
@@ -27,7 +29,10 @@ Once devices are registered, a modern Proxy Agent (observed on 10.x) sends **per
 ## Requirements
 
 - A BigFix Management Extender / Proxy Agent installation (Windows)
-- Python 3.11+ on the machine running the Proxy Agent, on `PATH` as `python`
+- Python 3.11+ on the machine running the Proxy Agent, launched via the `py` launcher
+  (`C:\Windows\py.exe`, installed for all users by the python.org installer - confirm
+  with `py -3 --version`). A Microsoft Store Python does not provide one the
+  `BESProxyAgent` service can see.
 
 The plugin runs on the Python standard library alone. It **vendors** only the [bigfix-proxyagent](https://github.com/jgstew/bigfix-proxyagent) SDK as a wheel in [vendor/](vendor/), loaded directly from there - no `pip install` needed. One pure-Python package, [tomlkit](https://pypi.org/project/tomlkit/), ships *bundled inside that SDK wheel* and is loaded automatically. It is optional at runtime: it is used only to rewrite `servermon.toml` on `set refresh interval` / `delete device` while preserving comments, and if it fails to load the plugin falls back to regex-based line editing, so nothing breaks. Updating the wheel is covered in [CONTRIBUTING.md](CONTRIBUTING.md).
 
@@ -40,7 +45,7 @@ git clone https://github.com/jgstew/bigfix-proxyagent-servermon.git
 net start BESProxyAgent
 ```
 
-If your Management Extender is installed elsewhere, adjust the two paths in [settings.json](settings.json) (`ExecutablePath` contains the path to the plugin entry point and to the config file).
+If your Management Extender is installed elsewhere, adjust the one path in [settings.json](settings.json) - `ExecutablePath` is `py -3` plus the path to `plugin\servermon.py`. The interpreter is resolved by the `py` launcher rather than hardcoded, so a Python upgrade does not break the plugin, and the config, log, and state file locations are derived from the entry point's own location - no other paths to maintain.
 
 ## Configure
 

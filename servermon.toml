@@ -44,6 +44,7 @@ match = "an account"
 
 [[urls]]
 url = "https://localhost:44444/fake.html"
+timeout_seconds = 5
 
 [[urls]]
 url = "http://localhost:888/"
