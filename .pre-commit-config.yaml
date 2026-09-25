@@ -47,6 +47,18 @@ repos:
     hooks:
       - id: fix-files-to-ascii
 
+  - repo: https://github.com/jgstew/pre-commit-bigfix
+    rev: v1.4.5
+    hooks:
+      - id: bes-schema-validate
+      - id: bes-conventions-check
+      - id: bes-actionscript-lint-schclass
+      - id: bes-actionscript-validate-prefetch
+      - id: bes-actionscript-validate-script
+        # E521: regset keynames in this repo are unquoted (accepted by the client)
+        args: [--disable, E521]
+      - id: bes-relevance-lint
+
   # - repo: https://github.com/python-jsonschema/check-jsonschema
   #   rev: 0.37.4
   #   hooks:

@@ -19,10 +19,10 @@
 		<Relevance>not exists (proxy agent service)</Relevance>
 		<Category>Upgrade</Category>
 		<DownloadSize>7302930</DownloadSize>
-		<Source>HCL</Source>
-		<SourceID><![CDATA[<Unspecified>]]></SourceID>
+		<Source>JGStew</Source>
+		<SourceID><![CDATA[JGStew]]></SourceID>
 		<SourceReleaseDate>2026-03-31</SourceReleaseDate>
-		<SourceSeverity><![CDATA[<Unspecified>]]></SourceSeverity>
+		<SourceSeverity></SourceSeverity>
 		<CVENames></CVENames>
 		<SANSID></SANSID>
 		<MIMEField>
