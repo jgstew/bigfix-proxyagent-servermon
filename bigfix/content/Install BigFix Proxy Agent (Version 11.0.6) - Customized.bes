@@ -44,7 +44,7 @@
 // If the next line fails, there is not enough free space to complete this action
 continue if {(if (exists variable "temp" of it) then (7302930 < free space of drive of folder(value of variable "temp" of it)) else true) of environment}
 
-if {exists parent folder of parent folder of file of relay service}
+if {exists parent folder of parent folder of file of (relay service|main gather service)}
 	parameter "proxyFolder"="{parent folder of parent folder of file of (relay service|main gather service)}\Management Extender"
 else
 	parameter "proxyFolder"="{parent folder of file of (relay service|main gather service)}\Management Extender"
