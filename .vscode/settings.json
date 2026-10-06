@@ -1,0 +1,13 @@
+{
+  "editor.formatOnSave": true,
+  "git.autofetch": true,
+  "task.allowAutomaticTasks": "on",
+  "python.analysis.completeFunctionParens": true,
+  "python.autoComplete.addBrackets": true,
+  "workbench.editorAssociations": {
+    "*.md": "vscode.markdown.preview.editor"
+  },
+  "python.analysis.diagnosticSeverityOverrides": {
+    "reportMissingImports": "information"
+  }
+}
