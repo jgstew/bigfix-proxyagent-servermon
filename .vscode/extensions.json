@@ -1,5 +1,6 @@
 {
   "recommendations": [
-    "ms-python.python", "EditorConfig.EditorConfig", "redhat.vscode-yaml"
+    "ms-python.python", "EditorConfig.EditorConfig", "redhat.vscode-yaml",
+    "tamasfe.even-better-toml"
   ]
 }

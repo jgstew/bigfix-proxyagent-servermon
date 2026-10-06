@@ -1,4 +1,4 @@
-[Previous: Part 1 - Install the plugin (~10 min)](01-install.md) | [Lab index](README.md) | [Next: Part 3 - Add URLs to monitor (~10 min)](03-add-urls.md)
+[Previous: Part 1 - Install the plugin (~10 min)](01-install.md) | [Lab index](README.md) | [Next: Part 3 - Manage URLs from the console (~25 min)](03-console.md)
 
 # Part 2 - Find the devices in the console (~5 min)
 
@@ -32,8 +32,8 @@ its own, subscribed only by the devices this plugin reports.
 
    ![Computer Subscriptions tab set to a relevance expression](images/CreateSite-03.png)
 
-4. Enter the relevance below, click **OK**, then **Save Changes** and enter your private
-   key password when asked.
+4. Enter the relevance below, click **OK**, then **Save Changes** and enter your operator
+   password if asked.
 
    ```
    in proxy agent context
@@ -45,12 +45,25 @@ That relevance subscribes every device a Proxy Agent reports, and no ordinary co
 
 ## 2.3 Import the analysis
 
-Import [`bigfix/content/analysis-servermon.bes`](../content/analysis-servermon.bes) into the `ProxyAgents` site and **activate** it. It
-exposes everything the plugin reports as properties: response code, check result,
-response time, TLS version, certificate expiry and more.
+Import [`bigfix/content/analysis-servermon.bes`](../content/analysis-servermon.bes) into the
+console. It exposes everything the plugin reports as properties: response code, check
+result, response time, TLS version, certificate expiry and more.
+
+1. The console warns that the content contains relevance. Click **Continue** - you can
+   click **View dynamic content** first to see what it is.
+
+   ![Security Warning dialog for imported content](images/Import-SecurityWarning.png)
+
+2. In the **Create Analysis** window, set **Create in site** to `ProxyAgents`, then save
+   it.
+
+   ![Create Analysis window with Create in site set to ProxyAgents](images/ImportAnalysis-01.png)
 
 > **Checkpoint 1** - you have a device named `example.com` whose *HTTP Response Code* is
-> `200` and whose *HTTP Check Result* starts with `OK:`.
+> `200` and whose *HTTP Check Result* starts with `OK:`. For example (your device names
+> will differ):
+>
+> ![Computers list showing analysis properties for a passing device](images/Checkpoint-01.png)
 
 **What to notice**
 
@@ -63,4 +76,4 @@ response time, TLS version, certificate expiry and more.
 
 ---
 
-[Previous: Part 1 - Install the plugin (~10 min)](01-install.md) | [Lab index](README.md) | [Next: Part 3 - Add URLs to monitor (~10 min)](03-add-urls.md)
+[Previous: Part 1 - Install the plugin (~10 min)](01-install.md) | [Lab index](README.md) | [Next: Part 3 - Manage URLs from the console (~25 min)](03-console.md)

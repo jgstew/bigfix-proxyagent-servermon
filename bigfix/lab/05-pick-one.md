@@ -1,4 +1,4 @@
-[Previous: Part 4 - Run it all from the console (~25 min)](04-console.md) | [Lab index](README.md) | [Next: Troubleshooting](troubleshooting.md)
+[Previous: Part 4 - Edit servermon.toml directly (advanced, ~10 min)](04-edit-toml.md) | [Lab index](README.md) | [Next: Troubleshooting](troubleshooting.md)
 
 # Part 5 - Pick one (~10 min)
 
@@ -27,4 +27,4 @@ Pick whichever is most relevant to you. These are independent.
 
 ---
 
-[Previous: Part 4 - Run it all from the console (~25 min)](04-console.md) | [Lab index](README.md) | [Next: Troubleshooting](troubleshooting.md)
+[Previous: Part 4 - Edit servermon.toml directly (advanced, ~10 min)](04-edit-toml.md) | [Lab index](README.md) | [Next: Troubleshooting](troubleshooting.md)

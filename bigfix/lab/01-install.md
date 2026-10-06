@@ -50,10 +50,14 @@ When VS Code asks **Do you trust the authors of the files in this folder?**, cho
 **Yes, I trust the authors**. In Restricted Mode, VS Code disables features such as
 the integrated terminal and extensions for that folder.
 
-Use this window to edit [`servermon.toml`](../../servermon.toml) and [`settings.json`](../../settings.json) from here on, and run
-commands in its integrated terminal (**Terminal > New Terminal**), which opens in the
-plugin folder. The folder is under `Program Files`, so if VS Code cannot save a file,
-reopen VS Code as administrator.
+If VS Code then offers to install the **recommended extensions** for this repository, choose
+**Install**. The list is in [`.vscode/extensions.json`](../../.vscode/extensions.json).
+
+Keep this window open for the rest of the lab: you will watch
+[`servermon.toml`](../../servermon.toml) change in it as you work from the console, and
+run commands in its integrated terminal (**Terminal > New Terminal**), which opens in the
+plugin folder. You will not edit any files until Part 4. The folder is under
+`Program Files`, so if VS Code cannot save a file then, reopen VS Code as administrator.
 
 If the plugin does not seem to run, see
 [Troubleshooting -> Check settings.json](troubleshooting.md#check-settingsjson).
