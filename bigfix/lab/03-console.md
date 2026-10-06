@@ -46,16 +46,30 @@ knows, or the agent will never hand them to you.
 
 ## 3.3 Add URLs from the console
 
-Make a copy of the **add url** task and change its actionscript to a URL of your choosing:
+Every task in this lab runs the same way: take action, pick a target, then edit the
+actionscript for this one action. The task itself is never changed.
 
-```
-push link https://<your-lab-site>/
-```
+1. Open the **ServerMon ProxyAgent: add url** task in the `ProxyAgents` site and click
+   **Take Action**.
 
-Target it at **any** servermon device. The target genuinely does not matter here - the URL
-comes from the argument, and there is no "plugin-level" device to aim at.
+   ![add url task with Take Action highlighted](images/TakeAction-01.png)
 
-Run it, and watch the action status go to **Completed**. In VS Code, a new `[[urls]]`
+2. On the **Target** tab, select **any** servermon device. The target genuinely does not
+   matter for this task - the URL comes from the actionscript, and there is no
+   "plugin-level" device to aim at.
+
+3. On the **Action Script** tab, choose **Use the following action script** and change
+   the URL to one of your choosing:
+
+   ```
+   push link https://<your-lab-site>/
+   ```
+
+   ![Take Action dialog, Action Script tab, with push link https://example.com](images/TakeAction-02.png)
+
+4. Click **OK** to run it.
+
+Watch the action status go to **Completed**. In VS Code, a new `[[urls]]`
 entry appears at the end of [`servermon.toml`](../../servermon.toml).
 
 Do it again for a second page on the same site, for example
@@ -75,8 +89,9 @@ device in the console and choose **Send Refresh** - you will use that a lot in t
 
 ## 3.4 Fix a failing check from the console
 
-This is the one to slow down for. First, break the second URL on purpose. Copy the
-**set url option** task, target the device for that second page, and set:
+This is the one to slow down for. First, break the second URL on purpose. Take action
+on the **set url option** task, target the device for that second page, and on the
+**Action Script** tab set:
 
 ```
 set match Welcome back
@@ -88,7 +103,7 @@ appear under that entry in VS Code, then **Send Refresh** on the device.
 > **Checkpoint 2** - the device shows *Check Success* `False`, *Match Found* `False`, and an
 > *HTTP Check Result* starting with `FAILED:`.
 
-Now repair it the same way, with text that really is on the page:
+Now repair it the same way - take action on **set url option** again - with text that really is on the page:
 
 ```
 set match <the text that is actually on the page>
@@ -126,7 +141,8 @@ written.
 
 ## 3.5 Change how often a URL is checked
 
-Target one device with the **set refresh interval** task:
+Take action on the **set refresh interval** task, target one device, and on the
+**Action Script** tab set:
 
 ```
 set refresh interval 5
@@ -151,7 +167,8 @@ Set the Proxy Agent heartbeat to the fastest cadence you need anywhere, then use
 
 ## 3.6 Retire a device
 
-Target one of the URLs you added with the **Delete Virtual Device** task:
+Take action on the **Delete Virtual Device** task and target one of the URLs you added.
+The actionscript needs no edit:
 
 ```
 delete device
