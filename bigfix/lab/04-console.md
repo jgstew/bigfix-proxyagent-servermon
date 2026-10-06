@@ -15,10 +15,10 @@ Import all four tasks from [bigfix/content/](../content/):
 
 | Task | Actionscript it runs |
 |---|---|
-| `ServerMon ProxyAgent_ add url.bes` | `push link <url>` |
-| `ServerMon ProxyAgent_ set url option.bes` | `set <field> <value>` |
-| `ServerMon ProxyAgent_ set refresh interval.bes` | `set refresh interval <minutes>` |
-| `ServerMon ProxyAgent_ Delete Virtual Device.bes` | `delete device` |
+| [`ServerMon_ProxyAgent_add_url.bes`](../content/ServerMon_ProxyAgent_add_url.bes) | `push link <url>` |
+| [`ServerMon_ProxyAgent_set_url_option.bes`](../content/ServerMon_ProxyAgent_set_url_option.bes) | `set <field> <value>` |
+| [`ServerMon_ProxyAgent_set_refresh_interval.bes`](../content/ServerMon_ProxyAgent_set_refresh_interval.bes) | `set refresh interval <minutes>` |
+| [`ServerMon_ProxyAgent_Delete_Virtual_Device.bes`](../content/ServerMon_ProxyAgent_Delete_Virtual_Device.bes) | `delete device` |
 
 Look at their relevance: `in proxy agent context` and `exists servermon version`. That
 pair keeps these tasks relevant only on devices this plugin reports, so they can never be
@@ -49,7 +49,7 @@ comes from the argument, and there is no "plugin-level" device to aim at.
 Run it, and watch the action status go to **Completed**. On the next refresh the new
 device appears in the console.
 
-## 4.4 Repair the broken device from the console
+## 4.4 Fix a failing check from the console
 
 This is the one to slow down for. Take the device you deliberately broke in Part 3.
 
@@ -110,7 +110,7 @@ delete device
 
 Watch what happens: the action reports **Completed**, the device is reported **one more
 time** on the next refresh, and only then is its `[[urls]]` entry removed from
-`servermon.toml`. That deferral is required by the protocol - see 4.5 above, a refresh
+[`servermon.toml`](../../servermon.toml). That deferral is required by the protocol - see 4.5 above, a refresh
 must always produce a report.
 
 Note what this does *not* do: it stops monitoring the URL, but it does not remove the
@@ -129,7 +129,7 @@ ran":
 | `Failed` | the external system refused - for an action-driven `refresh`, the URL check itself failed |
 | `Error` | the plugin could not even try: unknown field, bad value, duplicate URL, unknown device |
 
-> **Checkpoint 3** - now RDP back to the plugin host and open `servermon.toml`. It has
+> **Checkpoint 3** - now RDP back to the plugin host and open [`servermon.toml`](../../servermon.toml). It has
 > changed since Part 3 - new entry, new match, new interval, one entry gone - and you
 > never opened the file. Notice the comments and formatting are still intact.
 

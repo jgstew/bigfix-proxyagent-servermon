@@ -4,7 +4,7 @@
 
 ## 2.1 Find the devices in the BigFix console
 
-Within one heartbeat, the URLs from the shipped `servermon.toml` appear in **Computers**
+Within one heartbeat, the URLs from the shipped [`servermon.toml`](../../servermon.toml) appear in **Computers**
 as ordinary-looking devices:
 
 - **Device Type** is `Web Server`.
@@ -14,7 +14,7 @@ as ordinary-looking devices:
 
 ## 2.2 Import the analysis
 
-Import `bigfix/content/analysis-servermon.bes` into the console and **activate** it. It
+Import [`bigfix/content/analysis-servermon.bes`](../content/analysis-servermon.bes) into the console and **activate** it. It
 exposes everything the plugin reports as properties: response code, check result,
 response time, TLS version, certificate expiry and more.
 
@@ -23,7 +23,7 @@ response time, TLS version, certificate expiry and more.
 
 **What to notice**
 
-- One `[[urls]]` entry in `servermon.toml` equals exactly one device in BigFix.
+- One `[[urls]]` entry in [`servermon.toml`](../../servermon.toml) equals exactly one device in BigFix.
 - Device identity is the **full URL**, so `http://example.com` and `https://example.com`
   are two separate devices with separate history.
 - **Last Report Time** is the last time the URL actually *answered*. A URL that stops

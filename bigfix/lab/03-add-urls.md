@@ -2,7 +2,7 @@
 
 # Part 3 - Add URLs to monitor (~10 min)
 
-Edit `servermon.toml` on the plugin host and add two entries at the end - one that should
+Edit [`servermon.toml`](../../servermon.toml) on the plugin host and add two entries at the end - one that should
 pass, and one that is **wrong on purpose**:
 
 ```toml
@@ -31,9 +31,9 @@ servermon devices and **Send Refresh**, and look at the new devices.
 
 **What to notice**
 
-- You did **not** restart anything. `servermon.toml` is re-read on every single invocation
+- You did **not** restart anything. [`servermon.toml`](../../servermon.toml) is re-read on every single invocation
   of the plugin, and a URL that has never been checked is reported on the next refresh -
-  so new URLs show up immediately. By contrast, `settings.json` belongs to the Proxy Agent
+  so new URLs show up immediately. By contrast, [`settings.json`](../../settings.json) belongs to the Proxy Agent
   service and **does** require a restart.
 - `match` and `no_match` are case-insensitive **regular expressions**, not plain text.
   They are searched against the response headers and the first 1 MiB of the body. Plain

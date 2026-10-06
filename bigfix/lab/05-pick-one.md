@@ -21,7 +21,7 @@ Pick whichever is most relevant to you. These are independent.
 
   Match the keys in the `.report` JSON to the properties you have been reading in the
   console. Then look at `Logs\servermon.log`.
-- **Try the dashboard.** `bigfix/content/dashboard-servermon.ojo`.
+- **Try the dashboard.** [`bigfix/content/dashboard-servermon.ojo`](../content/dashboard-servermon.ojo).
 - **Discuss.** What in your own environment would you monitor this way, and how often?
   What would you *not* monitor this way?
 
