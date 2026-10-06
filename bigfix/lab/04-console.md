@@ -11,7 +11,7 @@ plugin host belongs to another team.
 
 ## 4.1 Import the tasks
 
-Import all four tasks from [bigfix/content/](../content/):
+Import all four tasks from [bigfix/content/](../content/) into the `ProxyAgents` site:
 
 | Task | Actionscript it runs |
 |---|---|

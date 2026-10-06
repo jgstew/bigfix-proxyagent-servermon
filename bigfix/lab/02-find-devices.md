@@ -12,9 +12,40 @@ as ordinary-looking devices:
 - The device name is the URL with the scheme removed - `https://example.com` becomes
   `example.com`.
 
-## 2.2 Import the analysis
+## 2.2 Create a custom site
 
-Import [`bigfix/content/analysis-servermon.bes`](../content/analysis-servermon.bes) into the console and **activate** it. It
+Put all of this lab's content - the analysis now and the tasks later - in a custom site of
+its own, subscribed only by the devices this plugin reports.
+
+1. In the console, choose **Tools > Create Custom Site...**.
+
+   ![Tools menu with Create Custom Site selected](images/CreateSite-01.png)
+
+2. Name the site `ProxyAgents` and click **OK**. Custom site names cannot be changed
+   later.
+
+   ![Create Custom Site dialog with the name ProxyAgents](images/CreateSite-02.png)
+
+3. On the **Computer Subscriptions** tab, choose **Computers which match the condition
+   below**, set the condition to **Relevance Expression** **is true**, and click
+   **Edit Relevance...**.
+
+   ![Computer Subscriptions tab set to a relevance expression](images/CreateSite-03.png)
+
+4. Enter the relevance below, click **OK**, then **Save Changes** and enter your private
+   key password when asked.
+
+   ```
+   in proxy agent context
+   ```
+
+   ![Edit Relevance dialog containing in proxy agent context](images/CreateSite-04.png)
+
+That relevance subscribes every device a Proxy Agent reports, and no ordinary computers.
+
+## 2.3 Import the analysis
+
+Import [`bigfix/content/analysis-servermon.bes`](../content/analysis-servermon.bes) into the `ProxyAgents` site and **activate** it. It
 exposes everything the plugin reports as properties: response code, check result,
 response time, TLS version, certificate expiry and more.
 
