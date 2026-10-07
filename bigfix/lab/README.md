@@ -33,7 +33,7 @@ cannot run a client - in this lab, a website. A Proxy Agent stands in for them:
 
 The README's [How it works](../../README.md#how-it-works) shows how the Proxy Agent and
 the plugin pass commands and reports back and forth, and
-[ProxyAgents.md](../reference-files/ProxyAgents.md) covers the protocol in depth.
+[ProxyAgents.md](../../bigfix/reference-files/ProxyAgents.md) covers the protocol in depth.
 
 ### Already set up on the lab machine
 
