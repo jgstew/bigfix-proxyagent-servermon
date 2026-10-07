@@ -104,15 +104,16 @@ action shows **Completed**.
 ## 3.4 Fix a failing check from the console
 
 This is the one to slow down for. First, break the second URL on purpose. Take action
-on the **set url option** task, target the `developer.bigfix.com/relevance/` device, and on the
-**Action Script** tab set:
+on the **set url option** task, target the `developer.bigfix.com/relevance` device (device
+names drop the trailing `/` of the URL), and on the **Action Script** tab set:
 
 ```
-set match Welcome back
+set match servermon-lab-7Q4xZ9-not-on-this-page
 ```
 
-Use text that is deliberately **not** on the page. Run it and watch `match = "Welcome back"`
-appear under that entry in VS Code. Changing an option makes the plugin re-check that URL
+Use text that is deliberately **not** on the page - something this specific cannot turn
+up by chance. Run it and watch `match = "servermon-lab-7Q4xZ9-not-on-this-page"` appear
+under that entry in VS Code. Changing an option makes the plugin re-check that URL
 on its next refresh - the one the Proxy Agent sends as the action completes - so the new
 result arrives with the action, without waiting for the URL's check interval.
 

@@ -35,13 +35,27 @@ On the Management Extender host:
 
    <img src="images/Install-03.png" alt="Administrator Command Prompt cloning the plugin into Plugins" width="600">
 
+   Clone into exactly this folder and keep the folder name `bigfix-proxyagent-servermon`.
+   The plugin's [`settings.json`](../../settings.json) tells the Proxy Agent how to start
+   the plugin, and its `ExecutablePath` contains the full path to
+   `...\Plugins\bigfix-proxyagent-servermon\plugin\servermon.py`. If the clone ends up
+   anywhere else, the Proxy Agent cannot start the plugin and no devices appear. (If your
+   Management Extender is installed somewhere other than the default, edit that one path -
+   see [Troubleshooting -> Check settings.json](troubleshooting.md#check-settingsjson).)
+
 5. Install [certifi](https://pypi.org/project/certifi/), an up-to-date set of trusted root
-   certificates. Windows Server 2016 often lacks roots that modern sites use, and the
-   plugin loads certifi automatically when it is installed:
+   certificates. A server's own certificate store can lack roots that modern sites use,
+   and the plugin loads certifi automatically when it is installed.
+
+   The service runs the plugin as LocalSystem, so install it for all users - from this
+   **administrator** Command Prompt:
 
    ```bat
    py -3 -m pip install certifi
    ```
+
+   If pip says `Defaulting to user installation`, see
+   [Troubleshooting -> certifi not found by the service](troubleshooting.md#certifi-not-found-by-the-service).
 
 6. Start the service again:
 
