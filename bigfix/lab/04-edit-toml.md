@@ -14,8 +14,8 @@ In VS Code, add one entry at the end of [`servermon.toml`](../../servermon.toml)
 
 ```toml
 [[urls]]
-url = "https://<your-lab-site>/another-page"
-match = "<some text that really is on that page>"
+url = "https://www.iana.org/help/example-domains"
+match = "Example Domains"
 no_match = "Could not connect to the database"
 ```
 

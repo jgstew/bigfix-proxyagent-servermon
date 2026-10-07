@@ -35,7 +35,15 @@ On the Management Extender host:
 
    ![Administrator Command Prompt cloning the plugin into Plugins](images/Install-03.png)
 
-5. Start the service again:
+5. Install [certifi](https://pypi.org/project/certifi/), an up-to-date set of trusted root
+   certificates. Windows Server 2016 often lacks roots that modern sites use, and the
+   plugin loads certifi automatically when it is installed:
+
+   ```bat
+   py -3 -m pip install certifi
+   ```
+
+6. Start the service again:
 
    ```bat
    net start BESProxyAgent

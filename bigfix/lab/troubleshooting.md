@@ -9,7 +9,8 @@
 | Nothing changes for half an hour | heartbeat still at the shipped value | `DeviceReportRefreshIntervalMinutes` in [`settings.json`](../../settings.json); or right-click the device and **Send Refresh** |
 | Action status is `Error` | the plugin refused the argument | unknown field, bad value, or duplicate URL - `Logs\servermon.log` has the detail |
 | Action never completes | the agent did not deliver the command | the `ProxyPluginCommands.json` whitelist - see [3.2](03-console.md#32-why-is-the-add-url-command-called-push-link) |
-| A check fails with `CERTIFICATE_VERIFY_FAILED` | the site's root CA is in none of the trust sources | README -> [TLS trust store](../../README.md#tls-trust-store); append the PEM to [`ca-bundle.pem`](../../ca-bundle.pem) |
+| A check fails with `CERTIFICATE_VERIFY_FAILED` | the site's root CA is in none of the trust sources | `py -3 -m pip install certifi` (step 1.1); or append the root's PEM to [`ca-bundle.pem`](../../ca-bundle.pem) - README -> [TLS trust store](../../README.md#tls-trust-store); see [Windows Server 2016](#windows-server-2016-and-tls) below |
+| A site works in Python but not in IE or PowerShell on the server | Windows Server 2016 has no TLS 1.3 | expected - see [Windows Server 2016](#windows-server-2016-and-tls) below |
 | Everything looks stuck and you want a clean slate | stale local state | README -> [Resetting the plugin's local state](../../README.md#resetting-the-plugins-local-state) |
 
 ## Check settings.json
@@ -31,6 +32,34 @@ Restart the service after any change to [`settings.json`](../../settings.json):
 net stop BESProxyAgent
 net start BESProxyAgent
 ```
+
+## Windows Server 2016 and TLS
+
+The plugin does its own TLS with the OpenSSL built into Python, not with Windows. Windows
+Server 2016 cannot do TLS 1.3 itself, but that does not affect the plugin's checks - it
+only affects Windows tools such as IE and PowerShell's `Invoke-WebRequest`.
+
+What the plugin does take from Windows is the list of trusted root certificates. Windows
+Server 2016 downloads most roots only when Windows itself first needs one, so a fresh or
+isolated server can be missing roots that modern sites use, and checks fail with
+`CERTIFICATE_VERIFY_FAILED`. Any one of these fixes it:
+
+- Install certifi, which the plugin loads automatically (step 1.1):
+
+  ```bat
+  py -3 -m pip install certifi
+  ```
+
+- Append the site's root certificate (PEM) to [`ca-bundle.pem`](../../ca-bundle.pem).
+- Refresh the Windows root store from Windows Update, then import `roots.sst` into
+  **Trusted Root Certification Authorities**:
+
+  ```bat
+  certutil -generateSSTFromWU roots.sst
+  ```
+
+The plugin logs which trust sources it loaded at startup - look for `TLS trust: loaded` in
+`Logs\servermon.log`.
 
 ---
 

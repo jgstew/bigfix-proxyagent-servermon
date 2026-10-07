@@ -59,10 +59,10 @@ actionscript for this one action. The task itself is never changed.
    "plugin-level" device to aim at.
 
 3. On the **Action Script** tab, choose **Use the following action script** and change
-   the URL to one of your choosing:
+   the URL to:
 
    ```
-   push link https://<your-lab-site>/
+   push link https://developer.bigfix.com/
    ```
 
    ![Take Action dialog, Action Script tab, with push link https://example.com](images/TakeAction-02.png)
@@ -72,8 +72,15 @@ actionscript for this one action. The task itself is never changed.
 Watch the action status go to **Completed**. In VS Code, a new `[[urls]]`
 entry appears at the end of [`servermon.toml`](../../servermon.toml).
 
-Do it again for a second page on the same site, for example
-`https://<your-lab-site>/some-page`.
+Do it again for a second page on the same site:
+
+```
+push link https://developer.bigfix.com/relevance/
+```
+
+Use real, reachable URLs like these, not made-up ones. The plugin host must be able to
+reach the URL: a name that does not resolve can only ever report `ERROR:`, and the next
+step needs a site that answers.
 
 The new devices appear on the next refresh. To get one now, right-click any servermon
 device in the console and choose **Send Refresh** - you will use that a lot in this lab.
@@ -90,7 +97,7 @@ device in the console and choose **Send Refresh** - you will use that a lot in t
 ## 3.4 Fix a failing check from the console
 
 This is the one to slow down for. First, break the second URL on purpose. Take action
-on the **set url option** task, target the device for that second page, and on the
+on the **set url option** task, target the `developer.bigfix.com/relevance/` device, and on the
 **Action Script** tab set:
 
 ```
@@ -103,13 +110,18 @@ appear under that entry in VS Code, then **Send Refresh** on the device.
 > **Checkpoint 2** - the device shows *Check Success* `False`, *Match Found* `False`, and an
 > *HTTP Check Result* starting with `FAILED:`.
 
-Now repair it the same way - take action on **set url option** again - with text that really is on the page:
+Now repair it the same way - take action on **set url option** again - with text that
+really is on the page:
 
 ```
-set match <the text that is actually on the page>
+set match Relevance Language
 ```
 
 Run it, then **Send Refresh** on that device. *Check Success* flips to `True`.
+
+For contrast, add a URL whose name does not resolve, such as
+`push link https://servermon-lab-test.invalid/`. It reports `ERROR:` and *HTTP Response
+Code* `0` - no `match` can fix that, because no server ever answered. Retire it in 3.6.
 
 You just fixed a monitoring check without logging into the server that runs the monitor.
 
