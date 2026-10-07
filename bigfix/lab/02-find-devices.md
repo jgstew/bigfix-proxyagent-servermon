@@ -2,7 +2,15 @@
 
 # Part 2 - Find the devices in the console (~5 min)
 
-## 2.1 Find the devices in the BigFix console
+## 2.1 Log in to the BigFix console
+
+Open the **BigFix Console** and log in with the master operator account for your lab. In
+the lab environment, the credentials panel can type the user name and password in for you
+with **Insert**:
+
+![BigFix console login with the lab credentials panel](images/ConsoleLogin-01.png)
+
+## 2.2 Find the devices in the BigFix console
 
 Within one heartbeat, the URLs from the shipped [`servermon.toml`](../../servermon.toml) appear in **Computers**
 as ordinary-looking devices:
@@ -12,7 +20,7 @@ as ordinary-looking devices:
 - The device name is the URL with the scheme removed - `https://example.com` becomes
   `example.com`.
 
-## 2.2 Create a custom site
+## 2.3 Create a custom site
 
 Put all of this lab's content - the analysis now and the tasks later - in a custom site of
 its own, subscribed only by the devices this plugin reports.
@@ -43,7 +51,7 @@ its own, subscribed only by the devices this plugin reports.
 
 That relevance subscribes every device a Proxy Agent reports, and no ordinary computers.
 
-## 2.3 Import the analysis
+## 2.4 Import the analysis
 
 Import [`bigfix/content/analysis-servermon.bes`](../content/analysis-servermon.bes) into the
 console. It exposes everything the plugin reports as properties: response code, check

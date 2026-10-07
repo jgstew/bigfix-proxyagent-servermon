@@ -115,3 +115,4 @@ ENV/
 # tomlkit ships bundled inside the SDK wheel and is only cached into vendor/ at
 # runtime (see CONTRIBUTING "Editing gotchas"); it must not be committed.
 vendor/tomlkit-*.whl
+bigfix/lab/servermon-lab.pdf
