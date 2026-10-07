@@ -6,7 +6,7 @@
 |---|---|---|
 | No devices ever appear | the plugin never ran | `Logs\servermon.log` under the plugin folder; the plugin path in `ExecutablePath` in [`settings.json`](../../settings.json); `py -3 --version` |
 | Your config edit had no effect | you edited [`settings.json`](../../settings.json), not [`servermon.toml`](../../servermon.toml) | [`settings.json`](../../settings.json) is read by the service - restart `BESProxyAgent` |
-| Nothing changes for half an hour | heartbeat still at the shipped value | `DeviceReportRefreshIntervalMinutes` in [`settings.json`](../../settings.json); or right-click the device and **Send Refresh** |
+| Nothing changes for half an hour | heartbeat still at the shipped value | `DeviceReportRefreshIntervalMinutes` in [`settings.json`](../../settings.json) |
 | Action status is `Error` | the plugin refused the argument | unknown field, bad value, or duplicate URL - `Logs\servermon.log` has the detail |
 | Action never completes | the agent did not deliver the command | the `ProxyPluginCommands.json` whitelist - see [3.2](03-console.md#32-why-is-the-add-url-command-called-push-link) |
 | A check fails with `CERTIFICATE_VERIFY_FAILED` | the site's root CA is in none of the trust sources | `py -3 -m pip install certifi` (step 1.1); or append the root's PEM to [`ca-bundle.pem`](../../ca-bundle.pem) - README -> [TLS trust store](../../README.md#tls-trust-store); see [Windows Server 2016](#windows-server-2016-and-tls) below |

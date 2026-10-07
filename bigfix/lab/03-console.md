@@ -88,15 +88,16 @@ Use real, reachable URLs like these, not made-up ones. The plugin host must be a
 reach the URL: a name that does not resolve can only ever report `ERROR:`, and the next
 step needs a site that answers.
 
-The new devices appear on the next refresh. To get one now, right-click any servermon
-device in the console and choose **Send Refresh** - you will use that a lot in this lab.
-
-<img src="images/SendRefresh-01.png" alt="Computer right-click menu with Send Refresh selected" width="600">
+You don't have to wait for the next heartbeat. When an action completes, the Proxy Agent
+refreshes the device you targeted, and the plugin uses that refresh to check and report
+any URL it has never checked. The new device appears in **Computers** shortly after the
+action shows **Completed**.
 
 **What to notice**
 
 - Nothing was restarted. The plugin re-reads [`servermon.toml`](../../servermon.toml) every
-  time it runs, and a URL that has never been checked is reported on the next refresh.
+  time it runs, and a URL that has never been checked is reported on the next refresh of
+  any servermon device.
 - One `[[urls]]` entry is one device, so adding the same URL twice is refused: the action
   comes back **Error**.
 
@@ -110,8 +111,10 @@ on the **set url option** task, target the `developer.bigfix.com/relevance/` dev
 set match Welcome back
 ```
 
-Use text that is deliberately **not** on the page. Run it, watch `match = "Welcome back"`
-appear under that entry in VS Code, then **Send Refresh** on the device.
+Use text that is deliberately **not** on the page. Run it and watch `match = "Welcome back"`
+appear under that entry in VS Code. Changing an option makes the plugin re-check that URL
+on its next refresh - the one the Proxy Agent sends as the action completes - so the new
+result arrives with the action, without waiting for the URL's check interval.
 
 > **Checkpoint 2** - the device shows *Check Success* `False`, *Match Found* `False`, and an
 > *HTTP Check Result* starting with `FAILED:`.
@@ -123,7 +126,7 @@ really is on the page:
 set match Relevance Language
 ```
 
-Run it, then **Send Refresh** on that device. *Check Success* flips to `True`.
+Run it. Once the action completes, *Check Success* flips to `True`.
 
 For contrast, add a URL whose name does not resolve, such as
 `push link https://servermon-lab-test.invalid/`. It reports `ERROR:` and *HTTP Response

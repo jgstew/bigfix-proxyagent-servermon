@@ -68,6 +68,8 @@ class DeviceState(DeviceStateStore):
         """
         entry = self.get(device_id)
         entry["last check"] = result.checked_at
+        # This check satisfies any pending request_check().
+        entry.pop("check requested", None)
         # The servermon version that produced this check, so a later run can
         # tell whether the plugin was upgraded since (see last_check_version).
         entry["last check version"] = __version__
@@ -88,6 +90,19 @@ class DeviceState(DeviceStateStore):
         """
         value = self._data.get(device_id, {}).get("last check")
         return value if isinstance(value, str) else None
+
+    def request_check(self, device_id: str) -> None:
+        """Make the device's next refresh run a real check even within its
+        check interval (its options changed, so the cached report is stale).
+
+        Cleared by the next :meth:`record`.
+        """
+        entry = self.get(device_id)
+        entry["check requested"] = True
+        self.update(device_id, entry)
+
+    def check_requested(self, device_id: str) -> bool:
+        return self._data.get(device_id, {}).get("check requested") is True
 
     def last_check_version(self, device_id: str) -> str | None:
         """Servermon version in effect when this device was last checked.
@@ -126,6 +141,8 @@ class DeviceState(DeviceStateStore):
             cleaned["last check"] = entry["last check"]
         if isinstance(entry.get("last check version"), str):
             cleaned["last check version"] = entry["last check version"]
+        if entry.get("check requested") is True:
+            cleaned["check requested"] = True
         if isinstance(entry.get("last hops check"), str):
             cleaned["last hops check"] = entry["last hops check"]
         hops = entry.get("network hops")

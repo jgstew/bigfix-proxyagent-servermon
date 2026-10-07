@@ -206,6 +206,7 @@ class ServerMonPlugin(ScheduledPollingPlugin):
                     ),
                 )
                 outcome = "Completed"
+                self._request_check(entries[0])
                 log.info(
                     "%s: set refresh_interval_minutes = %d for %s",
                     SET_REFRESH_INTERVAL,
@@ -248,6 +249,8 @@ class ServerMonPlugin(ScheduledPollingPlugin):
                     entry, field, value, clearing
                 ),
             )
+            if outcome == "Completed":
+                self._request_check(entry)
 
         self.respond(command, outcome)
         self.remove_command_file(command)
@@ -273,6 +276,17 @@ class ServerMonPlugin(ScheduledPollingPlugin):
                 for e in self.config.urls
             ),
         )
+
+    def _request_check(self, entry: UrlEntry) -> None:
+        """Check ``entry`` on its next refresh, ignoring its check interval:
+        the cached report was made under the old options.
+
+        The post-action refresh the Proxy Agent sends right after the action
+        is that refresh, so a console change shows up as soon as the action
+        completes.
+        """
+        self.state.request_check(device_id(entry.url))
+        self.state.save()
 
     def _process_delete_device(self, command: Command) -> None:
         """Actionscript "delete device": stop monitoring the targeted URL.
@@ -427,6 +441,12 @@ class ServerMonPlugin(ScheduledPollingPlugin):
     def _is_due(self, entry: UrlEntry) -> bool:
         last_check = self.state.last_check(device_id(entry.url))
         if last_check is None:
+            return True
+        if self.state.check_requested(device_id(entry.url)):
+            log.info(
+                "checking %s: its options changed since its last check",
+                device_name(entry.url),
+            )
             return True
         if self._version_bumped_since_check(entry):
             log.info(

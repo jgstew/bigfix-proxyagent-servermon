@@ -1199,6 +1199,103 @@ def test_set_refresh_interval_without_config_path(http_server, dirs):
     assert result[0]["Result"] == "Error"
 
 
+def _run_targeted_refresh(pending, output, config_path, state_file, target):
+    """One Proxy Agent invocation (a fresh plugin process, as in production)
+    answering a per-device refresh with no commandID - the same command a.
+
+    heartbeat, the post-action refresh, or a console Send Refresh produces.
+    """
+    for old in output.glob("*.report"):
+        old.unlink()
+    plugin = ServerMonPlugin(
+        load_config(config_path), state_file=state_file, config_path=config_path
+    )
+    write_command(
+        pending,
+        {"commandName": "refresh", "targetDevice": target,
+         "outputDirectory": str(output)},
+        name=f"Refresh-{target}.command",
+    )
+    plugin.process_command_dir(pending)
+
+
+def _run_action(pending, config_path, state_file, payload):
+    plugin = ServerMonPlugin(
+        load_config(config_path), state_file=state_file, config_path=config_path
+    )
+    write_command(pending, payload)
+    plugin.process_command_dir(pending)
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"commandName": "set", "commandArguments": "match hello"},
+        {"commandName": "set", "commandArguments": "timeout_seconds 10"},
+        {"commandName": "set", "commandArguments": "match"},  # clearing
+        {"commandName": "set refresh interval", "commandArguments": "120"},
+    ],
+)
+def test_config_change_forces_check_on_next_refresh(
+    http_server, dirs, tmp_path, payload
+):
+    """Changing a URL's options from the console must take effect on the next
+    refresh, not after its check interval: otherwise the post-action refresh.
+
+    (and any Send Refresh) keeps replaying a report made under the old rules.
+    """
+    pending, output = dirs
+    config_path = write_toml_config(tmp_path, http_server)
+    url = f"{http_server}/ok"
+    target = device_id(url)
+    state_file = tmp_path / "servermon-state.json"
+    state_file.write_text(json.dumps(_within_interval_state(target)), "utf-8")
+
+    _run_action(
+        pending,
+        config_path,
+        state_file,
+        {**payload, "outputDirectory": str(output), "targetDevice": target,
+         "commandID": "800-0"},
+    )
+    result = json.loads(next(output.glob("800-0-*.json")).read_text("utf-8"))
+    assert result[0]["Result"] == "Completed"
+
+    _run_targeted_refresh(pending, output, config_path, state_file, target)
+
+    assert read_report(output, url)["http check"]["response code"] == 200  # real
+
+    # The forced check is one-shot: the following refresh, still within the
+    # interval, replays the fresh report again instead of re-checking.
+    _run_targeted_refresh(pending, output, config_path, state_file, target)
+    state = json.loads(state_file.read_text("utf-8"))
+    state[target]["last report"]["http check"]["response code"] = 299
+    state_file.write_text(json.dumps(state), "utf-8")
+    _run_targeted_refresh(pending, output, config_path, state_file, target)
+    assert read_report(output, url)["http check"]["response code"] == 299
+
+
+def test_rejected_set_does_not_force_check(http_server, dirs, tmp_path):
+    """A set that is refused (Error) changed nothing, so the cache stands."""
+    pending, output = dirs
+    config_path = write_toml_config(tmp_path, http_server)
+    url = f"{http_server}/ok"
+    target = device_id(url)
+    state_file = tmp_path / "servermon-state.json"
+    state_file.write_text(json.dumps(_within_interval_state(target)), "utf-8")
+
+    _run_action(
+        pending, config_path, state_file,
+        _set_command(output, target, "no_such_field 1", cmd_id="801-0"),
+    )
+    result = json.loads(next(output.glob("801-0-*.json")).read_text("utf-8"))
+    assert result[0]["Result"] == "Error"
+
+    _run_targeted_refresh(pending, output, config_path, state_file, target)
+
+    assert read_report(output, url)["http check"]["response code"] == 299  # cached
+
+
 def write_two_url_config(tmp_path, http_server):
     path = tmp_path / "servermon.toml"
     path.write_text(

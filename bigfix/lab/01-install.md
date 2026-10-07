@@ -52,7 +52,13 @@ On the Management Extender host:
 ## 1.2 Verify
 
 Get in the habit of testing the plugin directly - it answers in seconds, while the console
-answers in minutes. From the plugin folder:
+answers in minutes. Change into the plugin folder you just cloned:
+
+```bat
+cd bigfix-proxyagent-servermon
+```
+
+Then validate the configuration:
 
 ```bat
 py -3 plugin\servermon.py --config servermon.toml --validate

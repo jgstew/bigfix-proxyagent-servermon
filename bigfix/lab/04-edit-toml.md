@@ -31,7 +31,8 @@ py -3 plugin\servermon.py --config servermon.toml --check
 `--validate` reports any configuration error; `--check` checks every URL once. If either
 complains, fix the file before you do anything else.
 
-Then **Send Refresh** on any servermon device and look for the new device.
+The plugin reports the new URL on the next refresh of any servermon device - at the latest,
+one Proxy Agent heartbeat after you save. Then look for the new device.
 
 > **Checkpoint 4** - the new device exists in the console and *Check Success* is `True`.
 
