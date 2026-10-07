@@ -16,7 +16,7 @@ On the Management Extender host:
 
 3. Look in the Management Extender folder. A new install has no `Plugins` folder yet:
 
-   ![Management Extender folder without a Plugins folder](images/Install-01.png)
+   <img src="images/Install-01.png" alt="Management Extender folder without a Plugins folder" width="600">
 
    If it is missing, create it:
 
@@ -24,7 +24,7 @@ On the Management Extender host:
    mkdir "C:\Program Files (x86)\BigFix Enterprise\Management Extender\Plugins"
    ```
 
-   ![Management Extender folder with a new Plugins folder](images/Install-02.png)
+   <img src="images/Install-02.png" alt="Management Extender folder with a new Plugins folder" width="600">
 
 4. Clone the plugin into it:
 
@@ -33,7 +33,7 @@ On the Management Extender host:
    git clone https://github.com/jgstew/bigfix-proxyagent-servermon.git
    ```
 
-   ![Administrator Command Prompt cloning the plugin into Plugins](images/Install-03.png)
+   <img src="images/Install-03.png" alt="Administrator Command Prompt cloning the plugin into Plugins" width="600">
 
 5. Install [certifi](https://pypi.org/project/certifi/), an up-to-date set of trusted root
    certificates. Windows Server 2016 often lacks roots that modern sites use, and the
@@ -81,12 +81,12 @@ When VS Code asks **Do you trust the authors of the files in this folder?**, cho
 **Yes, I trust the authors**. In Restricted Mode, VS Code disables features such as
 the integrated terminal and extensions for that folder.
 
-![VS Code trust dialog with Yes, I trust the authors highlighted](images/VSCode-01.png)
+<img src="images/VSCode-01.png" alt="VS Code trust dialog with Yes, I trust the authors highlighted" width="600">
 
 If VS Code then offers to install the **recommended extensions** for this repository, choose
 **Install**. The list is in [`.vscode/extensions.json`](../../.vscode/extensions.json).
 
-![VS Code prompt to install the recommended extensions](images/VSCode-02.png)
+<img src="images/VSCode-02.png" alt="VS Code prompt to install the recommended extensions" width="600">
 
 Keep this window open for the rest of the lab: you will watch
 [`servermon.toml`](../../servermon.toml) change in it as you work from the console, and
@@ -97,7 +97,7 @@ plugin folder. You will not edit any files until Part 4. The folder is under
 Once the plugin has run, its log is at `Logs\servermon.log` in the Explorer. It is the
 first place to look when something does not work:
 
-![VS Code Explorer showing Logs\servermon.log](images/VSCode-03.png)
+<img src="images/VSCode-03.png" alt="VS Code Explorer showing Logs\servermon.log" width="600">
 
 If the plugin does not seem to run, see
 [Troubleshooting -> Check settings.json](troubleshooting.md#check-settingsjson).

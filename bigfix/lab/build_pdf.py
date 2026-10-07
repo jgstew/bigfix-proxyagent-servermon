@@ -91,7 +91,8 @@ def clean(text):
     text = text.replace("](README.md)", "](#top)")
     text = re.sub(r"\]\(\.\./\.\./([^)]*)\)", rf"]({REPO_URL}\1)", text)
     text = re.sub(r"\]\(\.\./content/([^)]*)\)", rf"]({REPO_URL}bigfix/content/\1)", text)
-    text = text.replace("](images/", "](" + (LAB_DIR / "images").as_uri() + "/")
+    images = (LAB_DIR / "images").as_uri() + "/"
+    text = text.replace("](images/", "](" + images).replace('src="images/', 'src="' + images)
     # Python-Markdown needs 4-space list continuation; the labs use 3 (GitHub style).
     text = re.sub(r"(?m)^   (?=\S|  )", "    ", text)
     return text.replace("This file does not repeat", "This lab does not repeat")

@@ -38,8 +38,8 @@ Then **Send Refresh** on any servermon device and look for the new device.
 **What to notice**
 
 - You did **not** restart anything - the plugin re-reads the file every time it runs. By
-  contrast, [`settings.json`](../../settings.json) belongs to the Proxy Agent service and
-  **does** require a restart.
+  contrast, [`settings.json`](../../settings.json) is read by the Proxy Agent and
+  **does** require a restart of the `BESProxyAgent` service.
 - The console tasks from Part 3 refuse bad input before writing anything; a hand edit
   does not get that protection. Always run `--validate` after editing.
 

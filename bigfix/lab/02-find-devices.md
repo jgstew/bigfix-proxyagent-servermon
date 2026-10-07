@@ -8,7 +8,7 @@ Open the **BigFix Console** and log in with the master operator account for your
 the lab environment, the credentials panel can type the user name and password in for you
 with **Insert**:
 
-![BigFix console login with the lab credentials panel](images/ConsoleLogin-01.png)
+<img src="images/ConsoleLogin-01.png" alt="BigFix console login with the lab credentials panel" width="600">
 
 ## 2.2 Find the devices in the BigFix console
 
@@ -27,18 +27,18 @@ its own, subscribed only by the devices this plugin reports.
 
 1. In the console, choose **Tools > Create Custom Site...**.
 
-   ![Tools menu with Create Custom Site selected](images/CreateSite-01.png)
+   <img src="images/CreateSite-01.png" alt="Tools menu with Create Custom Site selected" width="600">
 
 2. Name the site `ProxyAgents` and click **OK**. Custom site names cannot be changed
    later.
 
-   ![Create Custom Site dialog with the name ProxyAgents](images/CreateSite-02.png)
+   <img src="images/CreateSite-02.png" alt="Create Custom Site dialog with the name ProxyAgents" width="600">
 
 3. On the **Computer Subscriptions** tab, choose **Computers which match the condition
    below**, set the condition to **Relevance Expression** **is true**, and click
    **Edit Relevance...**.
 
-   ![Computer Subscriptions tab set to a relevance expression](images/CreateSite-03.png)
+   <img src="images/CreateSite-03.png" alt="Computer Subscriptions tab set to a relevance expression" width="600">
 
 4. Enter the relevance below, click **OK**, then **Save Changes** and enter your operator
    password if asked.
@@ -47,7 +47,7 @@ its own, subscribed only by the devices this plugin reports.
    in proxy agent context
    ```
 
-   ![Edit Relevance dialog containing in proxy agent context](images/CreateSite-04.png)
+   <img src="images/CreateSite-04.png" alt="Edit Relevance dialog containing in proxy agent context" width="600">
 
 That relevance subscribes every device a Proxy Agent reports, and no ordinary computers.
 
@@ -57,10 +57,16 @@ Import [`bigfix/content/analysis-servermon.bes`](../content/analysis-servermon.b
 console. It exposes everything the plugin reports as properties: response code, check
 result, response time, TLS version, certificate expiry and more.
 
+On the plugin host the file is in this folder:
+
+```
+C:\Program Files (x86)\BigFix Enterprise\Management Extender\Plugins\bigfix-proxyagent-servermon\bigfix\content
+```
+
 1. The console warns that the content contains relevance. Click **Continue** - you can
    click **View dynamic content** first to see what it is.
 
-   ![Security Warning dialog for imported content](images/Import-SecurityWarning.png)
+   <img src="images/Import-SecurityWarning.png" alt="Security Warning dialog for imported content" width="600">
 
 2. In the **Create Analysis** window, set **Create in site** to `ProxyAgents`, then save
    it.

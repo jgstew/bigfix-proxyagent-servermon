@@ -12,9 +12,15 @@ changes. Editing it by hand comes later, in Part 4.
 
 ## 3.1 Import the tasks
 
-Import all four tasks from [bigfix/content/](../content/) the same way as the analysis:
-click **Continue** at the security warning, and set **Create in site** to `ProxyAgents`
-for each one.
+Import all four tasks from [bigfix/content/](../content/) the same way as the analysis.
+On the plugin host they are in this folder:
+
+```
+C:\Program Files (x86)\BigFix Enterprise\Management Extender\Plugins\bigfix-proxyagent-servermon\bigfix\content
+```
+
+For each one, click **Continue** at the security warning, and set **Create in site** to
+`ProxyAgents`.
 
 ![Create in site set to ProxyAgents](images/ImportTasks-01.png)
 
@@ -52,7 +58,7 @@ actionscript for this one action. The task itself is never changed.
 1. Open the **ServerMon ProxyAgent: add url** task in the `ProxyAgents` site and click
    **Take Action**.
 
-   ![add url task with Take Action highlighted](images/TakeAction-01.png)
+   <img src="images/TakeAction-01.png" alt="add url task with Take Action highlighted" width="600">
 
 2. On the **Target** tab, select **any** servermon device. The target genuinely does not
    matter for this task - the URL comes from the actionscript, and there is no
@@ -65,7 +71,7 @@ actionscript for this one action. The task itself is never changed.
    push link https://developer.bigfix.com/
    ```
 
-   ![Take Action dialog, Action Script tab, with push link https://example.com](images/TakeAction-02.png)
+   <img src="images/TakeAction-02.png" alt="Take Action dialog, Action Script tab, with push link https://example.com" width="600">
 
 4. Click **OK** to run it.
 
@@ -85,7 +91,7 @@ step needs a site that answers.
 The new devices appear on the next refresh. To get one now, right-click any servermon
 device in the console and choose **Send Refresh** - you will use that a lot in this lab.
 
-![Computer right-click menu with Send Refresh selected](images/SendRefresh-01.png)
+<img src="images/SendRefresh-01.png" alt="Computer right-click menu with Send Refresh selected" width="600">
 
 **What to notice**
 
