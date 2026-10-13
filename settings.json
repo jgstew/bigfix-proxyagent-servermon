@@ -1,6 +1,6 @@
 {
   "ID": "servermon",
-  "ExecutablePath": "py -3 \"C:\\Program Files (x86)\\BigFix Enterprise\\Management Extender\\Plugins\\bigfix-proxyagent-servermon\\plugin\\servermon.py\"",
+  "ExecutablePath": "\"C:\\Users\\Administrator\\AppData\\Local\\Programs\\Python\\Python312\\python.exe\" \"C:\\Program Files (x86)\\BigFix Enterprise\\Management Extender\\Plugins\\bigfix-proxyagent-servermon\\plugin\\servermon.py\"",
   "ConfigurationOptions": "",
   "TargetHintRelevance": "url of http check",
   "CommandFormat": "JSON",
