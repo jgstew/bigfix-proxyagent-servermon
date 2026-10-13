@@ -4,7 +4,7 @@
 
 | Symptom | Likely cause | What to check |
 |---|---|---|
-| No devices ever appear | the plugin never ran | `Logs\servermon.log` under the plugin folder; the plugin path in `ExecutablePath` in [`settings.json`](../../settings.json); `py -3 --version` |
+| No devices ever appear | the plugin never ran - often the Python in `ExecutablePath` is gone | run [`diagnostics.bat /system`](../../diagnostics.bat) from an elevated prompt in the plugin folder; `Logs\servermon.log` under the plugin folder |
 | Your config edit had no effect | you edited [`settings.json`](../../settings.json), not [`servermon.toml`](../../servermon.toml) | [`settings.json`](../../settings.json) is read by the service - restart `BESProxyAgent` |
 | Nothing changes for half an hour | heartbeat still at the shipped value | `DeviceReportRefreshIntervalMinutes` in [`settings.json`](../../settings.json) |
 | Action status is `Error` | the plugin refused the argument | unknown field, bad value, or duplicate URL - `Logs\servermon.log` has the detail |

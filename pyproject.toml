@@ -77,3 +77,5 @@ max-line-length = 88
 [tool.codespell]
 # PEM base64 blobs and logs are not prose
 skip = "*.pem,./.git,./Logs"
+# "fo" is the whoami /fo (format) switch in diagnostics.bat
+ignore-words-list = "fo"

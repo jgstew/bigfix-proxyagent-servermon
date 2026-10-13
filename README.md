@@ -223,6 +223,12 @@ Without `--commandDir`, the plugin processes `command_dir` from `[settings]` in 
 
 ## Troubleshooting
 
+- **The plugin never runs** (no devices, no `Logs\servermon.log`): usually the interpreter in `ExecutablePath` is gone - e.g. a system-wide Python or the `py` launcher removed by an update. Run [diagnostics.bat](diagnostics.bat) from an elevated Command Prompt in the plugin folder; it needs no Python. It reads `ExecutablePath` from settings.json, resolves the interpreter the way the service would (System32, Windows folder, *machine* PATH), lists the Python installs on the machine, runs the interpreter and checks it is 3.11+, checks the plugin files, and finally runs the exact `ExecutablePath` with `--validate`. Each step prints `PASS`/`WARN`/`FAIL` with a fix hint, and the exit code is the number of failures. Add `/system` to repeat every check as LocalSystem (via a one-shot scheduled task), since the service cannot see per-user Python installs or your user PATH - a check that passes as Administrator can still fail for the service:
+
+  ```bat
+  diagnostics.bat /system > diagnostics.txt 2>&1
+  ```
+
 - Every run writes a rotating log (1 MiB * 3 backups) to `Logs\servermon.log` under the plugin folder by default, creating the directory if needed. Use `--log-file <path>` in the `ExecutablePath` to log somewhere else, and `--log-level DEBUG` for more detail. If the log file cannot be written (e.g. permissions), the plugin logs to stderr and keeps running.
 - The Proxy Agent's own logs (and extra log streams via the registry) and the **carbon copy** client settings for capturing the raw command/report traffic are covered under "Debugging a plugin" in [ProxyAgents.md](bigfix/reference-files/ProxyAgents.md).
 
