@@ -4,7 +4,7 @@
 
 | Symptom | Likely cause | What to check |
 |---|---|---|
-| No devices ever appear | the plugin never ran - often the Python in `ExecutablePath` is gone | run [`diagnostics.bat /system`](../../diagnostics.bat) from an elevated prompt in the plugin folder; `Logs\servermon.log` under the plugin folder |
+| No devices ever appear | the plugin never ran - often the Python in `ExecutablePath` is gone | run [`diagnostics.bat /system`](../../diagnostics.bat) from an elevated prompt in the plugin folder - it can switch `ExecutablePath` to `py -3`, an all-users Python, or uv; `Logs\servermon.log` under the plugin folder |
 | Your config edit had no effect | you edited [`settings.json`](../../settings.json), not [`servermon.toml`](../../servermon.toml) | [`settings.json`](../../settings.json) is read by the service - restart `BESProxyAgent` |
 | Nothing changes for half an hour | heartbeat still at the shipped value | `DeviceReportRefreshIntervalMinutes` in [`settings.json`](../../settings.json) |
 | Action status is `Error` | the plugin refused the argument | unknown field, bad value, or duplicate URL - `Logs\servermon.log` has the detail |
@@ -87,6 +87,11 @@ py -3 -s -c "import certifi; print(certifi.where())"
 This should print a path in Python's own install folder (typically under
 `C:\Program Files\`), not under your user folder. An `ImportError` means certifi is
 installed for your user only.
+
+[`diagnostics.bat`](../../diagnostics.bat), run from an administrator Command Prompt in
+the plugin folder, does this check for you and offers to install certifi for all users
+with the interpreter from `ExecutablePath`; `diagnostics.bat /install-certifi` installs
+it without asking.
 
 ---
 

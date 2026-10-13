@@ -116,3 +116,6 @@ ENV/
 # runtime (see CONTRIBUTING "Editing gotchas"); it must not be committed.
 vendor/tomlkit-*.whl
 bigfix/lab/servermon-lab.pdf
+
+# diagnostics.bat backups of settings.json
+settings.json.*.bak

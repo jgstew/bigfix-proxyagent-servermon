@@ -11,12 +11,19 @@ rem   diagnostics.bat           check as the current user
 rem   diagnostics.bat /system   also re-run every check as LocalSystem, the
 rem                             account BESProxyAgent runs plugins as
 rem                             (needs an elevated "Run as administrator" prompt)
+rem   /install-certifi          if certifi is missing, install it for all users
+rem                             without asking (otherwise you are asked)
+rem
+rem If the interpreter is missing, broken, or a per-user install, it offers to
+rem point ExecutablePath at py -3, an all-users python.exe, or an all-users
+rem uv instead (settings.json is backed up first).
 rem
 rem Save the output to share it:  diagnostics.bat /system > diagnostics.txt 2>&1
 rem
 rem Read-only apart from temp files, except that /system briefly creates and
-rem deletes a scheduled task, and the final check runs the plugin with
-rem --validate (which only reads servermon.toml and writes its usual log).
+rem deletes a scheduled task, the final check runs the plugin with --validate
+rem (which only reads servermon.toml and writes its usual log), and certifi is
+rem pip installed and ExecutablePath switched only if you agree to it.
 rem
 rem Exit code: number of FAIL results (0 = ExecutablePath works).
 
@@ -29,8 +36,12 @@ set "FAILS=0"
 set "WARNS=0"
 set "ALSO_SYSTEM="
 set "NESTED="
-if /i "%~1"=="/system" set "ALSO_SYSTEM=1"
-if /i "%~1"=="/nested" set "NESTED=1"
+set "INSTALL_CERTIFI="
+for %%A in (%*) do (
+  if /i "%%~A"=="/system" set "ALSO_SYSTEM=1"
+  if /i "%%~A"=="/nested" set "NESTED=1"
+  if /i "%%~A"=="/install-certifi" set "INSTALL_CERTIFI=1"
+)
 if not defined TEMP set "TEMP=%SystemRoot%\Temp"
 set "DIAG_OUT=%TEMP%\servermon-diag-%RANDOM%%RANDOM%.txt"
 set "PS=%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe"
@@ -59,6 +70,15 @@ if not defined IS_SYSTEM (
   echo       not prove the service can run it - use "diagnostics.bat /system".
 )
 
+rem Checks start over from here after ExecutablePath is switched.
+:restart_checks
+if defined RESTART (
+  set "RESTART="
+  set "FAILS=0"
+  set "WARNS=0"
+  echo.
+  echo ==== ExecutablePath changed - re-running every check ====
+)
 rem ---------------------------------------------------------------------------
 echo.
 echo [1] settings.json
@@ -181,7 +201,12 @@ if errorlevel 1 (
   call :warn "no python.exe found in the usual all-users or per-user locations"
 )
 del "%DIAG_OUT%" >nul 2>&1
-if not defined EXEFULL goto :files
+set "EXENAME="
+if not defined EXEFULL (
+  call :offer_switch
+  if defined RESTART goto :restart_checks
+  goto :files
+)
 for %%N in ("!EXEFULL!") do set "EXENAME=%%~nN"
 if /i not "!EXENAME!"=="py" goto :run_python
 echo          what this py launcher sees (as !WHO!):
@@ -194,7 +219,10 @@ del "%DIAG_OUT%" >nul 2>&1
 rem ---------------------------------------------------------------------------
 echo.
 echo [4] Run the interpreter:!IARGS! (needs Python 3.11+)
-"%EXEFULL%"%IARGS% -c "import sys; print(sys.executable); print('.'.join(map(str, sys.version_info[:3]))); sys.exit(0 if sys.version_info >= (3, 11) else 3)" > "%DIAG_OUT%" 2>&1
+rem uv runs a script directly, but needs "python" to run -c / -m.
+set "RUNPY="!EXEFULL!"!IARGS!"
+if /i "!EXENAME!"=="uv" set "RUNPY=!RUNPY! python"
+%RUNPY% -c "import sys; print(sys.executable); print('.'.join(map(str, sys.version_info[:3]))); sys.exit(0 if sys.version_info >= (3, 11) else 3)" > "%DIAG_OUT%" 2>&1
 set "RC=%ERRORLEVEL%"
 set "PYEXE="
 set "PYVER="
@@ -203,7 +231,6 @@ for /f "usebackq delims=" %%L in ("%DIAG_OUT%") do (
 )
 if "!RC!"=="0" (
   call :pass "Python !PYVER! runs: !PYEXE!"
-  if not "!PYEXE:\Users\=!"=="!PYEXE!" call :warn "the interpreter actually used is a per-user install - LocalSystem may not get the same one"
 ) else if "!RC!"=="3" (
   call :fail "Python !PYVER! is too old - servermon needs 3.11+ - !PYEXE!"
 ) else (
@@ -212,9 +239,47 @@ if "!RC!"=="0" (
   if /i "!EXENAME!"=="py" call :hint "py with no usable runtime: install Python 3.11+ for all users"
 )
 del "%DIAG_OUT%" >nul 2>&1
-if not "!RC!"=="0" goto :files
 
-"%EXEFULL%"%IARGS% -c "import ssl, tomllib; print(ssl.OPENSSL_VERSION)" > "%DIAG_OUT%" 2>&1
+rem TARGET is the interpreter the service will really use; the ssl and certifi
+rem checks (and a certifi install) run against it.
+set "TARGET=!RUNPY!"
+set "PERUSER="
+if not "!EXEFULL:\Users\=!"=="!EXEFULL!" set "PERUSER=1"
+if defined PYEXE if not "!PYEXE:\Users\=!"=="!PYEXE!" set "PERUSER=1"
+if not "!RC!"=="0" (
+  call :offer_switch
+  if defined RESTART goto :restart_checks
+  goto :files
+)
+if not defined PERUSER goto :run_python_ok
+rem A py or uv that is itself in a profile is offered a switch like python.exe.
+if "!EXEFULL:\Users\=!"=="!EXEFULL!" if /i "!EXENAME!"=="py" goto :py_peruser
+if "!EXEFULL:\Users\=!"=="!EXEFULL!" if /i "!EXENAME!"=="uv" goto :uv_peruser
+call :offer_switch
+if defined RESTART goto :restart_checks
+goto :run_python_ok
+
+:uv_peruser
+rem uv keeps its managed Pythons per account; as LocalSystem it finds an
+rem all-users Python or downloads its own on first run.
+if not "!PYEXE:\Users\=!"=="!PYEXE!" echo   [INFO] uv picked your per-user Python; as LocalSystem uv uses its own or an all-users one
+goto :run_python_ok
+
+:py_peruser
+rem py picked a per-user Python for you; LocalSystem's py cannot see it and
+rem picks the newest all-users one instead, so check that one.
+call :find_alt
+if defined ALT_EXE (
+  echo   [INFO] py picked your per-user Python; as LocalSystem it will run !ALT_EXE! - Python !ALT_VER! - checking that one
+  set "TARGET="!ALT_EXE!""
+) else (
+  call :fail "py picked a per-user Python; as LocalSystem py finds no all-users Python 3.11+"
+  call :offer_switch
+  if defined RESTART goto :restart_checks
+)
+
+:run_python_ok
+%TARGET% -c "import ssl, tomllib; print(ssl.OPENSSL_VERSION)" > "%DIAG_OUT%" 2>&1
 if errorlevel 1 (
   call :fail "required standard library modules (ssl, tomllib) failed to import:"
   for /f "usebackq delims=" %%L in ("%DIAG_OUT%") do echo            %%L
@@ -225,9 +290,10 @@ if errorlevel 1 (
 )
 del "%DIAG_OUT%" >nul 2>&1
 
-"%EXEFULL%"%IARGS% -s -c "import certifi; print(certifi.where())" > "%DIAG_OUT%" 2>nul
+%TARGET% -s -c "import certifi; print(certifi.where())" > "%DIAG_OUT%" 2>nul
 if errorlevel 1 (
   echo   [INFO] certifi not installed for all users ^(optional - README "TLS trust store"^)
+  call :offer_certifi
 ) else (
   set /p CERTIFI=<"%DIAG_OUT%"
   echo   [INFO] certifi: !CERTIFI!
@@ -372,6 +438,123 @@ del "%SYS_CMD%" "%SYS_DONE%" >nul 2>&1
 endlocal & exit /b %FAILS%
 
 rem ---------------------------------------------------------------------------
+rem Find what ExecutablePath could switch to, as LocalSystem would see it:
+rem ALT_EXE / ALT_VER = newest all-users python.exe 3.11+ that runs,
+rem ALT_PY = the all-users py launcher, ALT_UV = uv.exe outside any profile.
+:find_alt
+set "ALT_EXE="
+set "ALT_VER="
+set "ALT_PY="
+set "ALT_UV="
+%PSRUN% "$c = @(); foreach ($b in @($env:ProgramFiles, ${env:ProgramFiles(x86)}, $env:SystemDrive)) { if ($b) { $c += @(Get-ChildItem -Path ($b + '\Python3*\python.exe') -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName }) } }; foreach ($k in @('HKLM:\SOFTWARE\Python\PythonCore', 'HKLM:\SOFTWARE\WOW6432Node\Python\PythonCore')) { Get-ChildItem $k -ErrorAction SilentlyContinue | ForEach-Object { $e = (Get-ItemProperty ($_.PSPath + '\InstallPath') -ErrorAction SilentlyContinue).ExecutablePath; if ($e) { $c += $e } } }; $best = ''; $bv = [version]'3.11'; foreach ($e in @($c | Sort-Object -Unique)) { if ($e -match '\\Users\\|\\WindowsApps\\' -or -not (Test-Path -LiteralPath $e)) { continue }; try { $v = [version]((& $e -c 'import sys; print(*sys.version_info[:2], sep=chr(46))' 2>$null) | Select-Object -First 1) } catch { continue }; if ($v -ge $bv) { $best = $e; $bv = $v } }; $dirs = @([Environment]::SystemDirectory, $env:SystemRoot) + ([Environment]::GetEnvironmentVariable('Path', 'Machine') -split ';'); $found = @{}; foreach ($n in @('py.exe', 'uv.exe')) { foreach ($d in $dirs) { try { if ($d.Trim()) { $p = Join-Path ([Environment]::ExpandEnvironmentVariables($d.Trim())) $n; if (-not ($p -match '\\Users\\') -and (Test-Path -LiteralPath $p -PathType Leaf)) { $found[$n] = $p; break } } } catch {} } }; $ver = ''; if ($best) { $ver = [string]$bv }; Set-Content -LiteralPath $env:DIAG_OUT -Value @(('ALT_EXE=' + $best), ('ALT_VER=' + $ver), ('ALT_PY=' + $found['py.exe']), ('ALT_UV=' + $found['uv.exe']))"
+for /f "usebackq tokens=1,* delims==" %%A in ("%DIAG_OUT%") do set "%%A=%%B"
+del "%DIAG_OUT%" >nul 2>&1
+exit /b 0
+
+rem Offer to point ExecutablePath at py -3 (needs an all-users Python 3.11+
+rem for LocalSystem's py to pick), an all-users python.exe, or uv (which can
+rem fetch its own Python), then re-run every check. Once per run; never in the
+rem unattended LocalSystem pass.
+:offer_switch
+if defined NESTED exit /b 0
+if defined SWITCHED exit /b 0
+if not defined SCRIPT exit /b 0
+call :find_alt
+set "CURNAME="
+for %%N in ("!EXE!") do set "CURNAME=%%~nN"
+set "KEYS="
+if defined ALT_PY if defined ALT_EXE if /i not "!CURNAME!"=="py" set "KEYS=!KEYS!P"
+if defined ALT_EXE set "KEYS=!KEYS!F"
+if defined ALT_UV if /i not "!CURNAME!"=="uv" set "KEYS=!KEYS!U"
+if not defined KEYS (
+  echo          nothing to switch ExecutablePath to: no all-users Python 3.11+ or uv found
+  call :hint "install Python 3.11+ from python.org for all users, with the py launcher"
+  exit /b 0
+)
+set "KEYS=!KEYS!N"
+set "NEW_P=py -3 "!SCRIPT!"!SARGS!"
+set "NEW_F="!ALT_EXE!" "!SCRIPT!"!SARGS!"
+set "NEW_U="!ALT_UV!" run --no-project --python "^>=3.11" "!SCRIPT!"!SARGS!"
+echo          ExecutablePath could use an all-users interpreter instead:
+if not "!KEYS:P=!"=="!KEYS!" echo            [P] !NEW_P!
+if not "!KEYS:P=!"=="!KEYS!" echo                py launcher with all-users Python !ALT_VER! - survives Python upgrades, recommended
+if not "!KEYS:F=!"=="!KEYS!" echo            [F] !NEW_F!
+if not "!KEYS:F=!"=="!KEYS!" echo                all-users Python !ALT_VER! - breaks if that version is uninstalled
+if not "!KEYS:U=!"=="!KEYS!" echo            [U] !NEW_U!
+if not "!KEYS:U=!"=="!KEYS!" echo                uv - finds an all-users Python 3.11+ or downloads one on first run
+echo            [N] keep the current ExecutablePath
+if not "!ELEVATED!"=="yes" (
+  echo          to switch, re-run this from an elevated prompt, or edit settings.json by hand
+  exit /b 0
+)
+choice /c !KEYS! /n /t 60 /d N /m "         Switch ExecutablePath? [!KEYS!] (60s, default N) " >con
+set /a CI=%ERRORLEVEL%-1
+set "ANSWER=!KEYS:~%CI%,1!"
+set "NEWEXEC="
+if /i "!ANSWER!"=="P" set "NEWEXEC=!NEW_P!"
+if /i "!ANSWER!"=="F" set "NEWEXEC=!NEW_F!"
+if /i "!ANSWER!"=="U" set "NEWEXEC=!NEW_U!"
+if not defined NEWEXEC (
+  echo          ExecutablePath left unchanged
+  exit /b 0
+)
+rem Replace only the ExecutablePath value; the rest of the file is kept as is.
+%PSRUN% "$ErrorActionPreference = 'Stop'; try { $t = [IO.File]::ReadAllText($env:SETTINGS); $q = [char]34; $rx = [regex]('(' + $q + 'ExecutablePath' + $q + '\s*:\s*)' + $q + '(?:[^' + $q + '\\]|\\.)*' + $q); $m = $rx.Match($t); if (-not $m.Success) { Write-Output 'ExecutablePath not found in settings.json'; exit 2 }; $j = (ConvertTo-Json -InputObject $env:NEWEXEC -Compress) -replace '\\u003e', '>' -replace '\\u003c', '<' -replace '\\u0026', '&' -replace '\\u0027', [string][char]39; $new = $t.Substring(0, $m.Index) + $m.Groups[1].Value + $j + $t.Substring($m.Index + $m.Length); if (($new | ConvertFrom-Json).ExecutablePath -cne $env:NEWEXEC) { Write-Output 'the rewritten settings.json did not round-trip'; exit 3 }; $b = $env:SETTINGS + '.' + (Get-Date -Format 'yyyyMMdd-HHmmss') + '.bak'; Copy-Item -LiteralPath $env:SETTINGS -Destination $b; [IO.File]::WriteAllText($env:SETTINGS, $new); [IO.File]::WriteAllText($env:DIAG_OUT, $b); exit 0 } catch { Write-Output ('could not update settings.json: ' + $_.Exception.Message); exit 4 }"
+if errorlevel 1 (
+  call :fail "settings.json was left unchanged"
+  exit /b 0
+)
+set "BAK="
+set /p BAK=<"%DIAG_OUT%"
+del "%DIAG_OUT%" >nul 2>&1
+echo          settings.json updated; the original is saved as !BAK!
+echo          restart the service to use it: net stop BESProxyAgent ^&^& net start BESProxyAgent
+set "SWITCHED=1"
+set "RESTART=1"
+exit /b 0
+
+rem ---------------------------------------------------------------------------
+rem Offer to pip install certifi into the found interpreter's own
+rem site-packages, where LocalSystem can see it. Skipped in the LocalSystem
+rem pass (no one to answer); that pass verifies the install instead.
+:offer_certifi
+if defined NESTED exit /b 0
+if /i "!EXENAME!"=="uv" (
+  echo          with uv, add --with certifi after "run" in ExecutablePath to provide it
+  exit /b 0
+)
+if not "!ELEVATED!"=="yes" (
+  echo          to install it for all users, re-run this from an elevated prompt
+  exit /b 0
+)
+if defined INSTALL_CERTIFI goto :install_certifi
+rem The prompt goes to the console so it is seen even when output is
+rem redirected to a file; no answer within 60s means No.
+choice /c YN /n /t 60 /d N /m "         Install certifi for all users with this Python now? [Y/N] (60s, default N) " >con
+if errorlevel 2 (
+  echo          certifi install declined
+  exit /b 0
+)
+:install_certifi
+echo          installing: !TARGET! -s -m pip install certifi
+rem -s hides the user site, so a per-user copy of certifi does not count as
+rem "already satisfied" and pip installs into the interpreter's site-packages.
+%TARGET% -s -m pip install --disable-pip-version-check certifi
+if errorlevel 1 (
+  call :fail "pip install certifi failed - see the pip output above"
+  call :hint "no pip: run the interpreter with -m ensurepip; no internet: pip install a downloaded certifi .whl"
+  exit /b 0
+)
+%TARGET% -s -c "import certifi; print(certifi.where())" > "%DIAG_OUT%" 2>&1
+if errorlevel 1 (
+  call :fail "certifi installed but still not visible outside your user profile"
+  call :hint "pip probably defaulted to a user installation - see lab troubleshooting, certifi not found by the service"
+  exit /b 0
+)
+set /p CERTIFI=<"%DIAG_OUT%"
+call :pass "certifi installed for all users: !CERTIFI!"
+exit /b 0
+
 :pass
 set "MSG=%~1"
 echo   [PASS] !MSG!
