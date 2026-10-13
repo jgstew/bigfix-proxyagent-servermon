@@ -2,7 +2,9 @@
 
 The Proxy Agent launches this via the ExecutablePath in settings.json and
 appends ``--configOptions <...> --commandDir <dir>``. It can also be run by
-hand with ``--check`` or ``--validate`` to test without a Proxy Agent.
+hand with ``--check`` or ``--validate`` to test without a Proxy Agent; run by
+hand without ``--commandDir``, it processes ``settings.command_dir`` from the
+config, else ``PendingCommands`` in the plugin root.
 """
 
 from __future__ import annotations
@@ -21,9 +23,11 @@ from .plugin import ServerMonPlugin
 
 log = logging.getLogger(__name__)
 
-DEFAULT_CONFIG = Path(__file__).resolve().parent.parent / "servermon.toml"
-DEFAULT_LOG_FILE = Path(__file__).resolve().parent.parent / "Logs" / "servermon.log"
-DEFAULT_STATE_FILE = Path(__file__).resolve().parent.parent / "servermon-state.json"
+PLUGIN_ROOT = Path(__file__).resolve().parent.parent
+DEFAULT_CONFIG = PLUGIN_ROOT / "servermon.toml"
+DEFAULT_LOG_FILE = PLUGIN_ROOT / "Logs" / "servermon.log"
+DEFAULT_STATE_FILE = PLUGIN_ROOT / "servermon-state.json"
+DEFAULT_COMMAND_DIR = PLUGIN_ROOT / "PendingCommands"
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -91,11 +95,28 @@ def main(argv: list[str] | None = None) -> int:
     if args.check:
         return _run_check(plugin, as_json=args.json)
 
-    if not args.command_dir:
-        parser.error("--commandDir is required (or use --check / --validate)")
-
-    plugin.process_command_dir(args.command_dir)
+    command_dir = _resolve_command_dir(args.command_dir, config.command_dir)
+    log.info("using command directory: %s", command_dir)
+    try:
+        plugin.process_command_dir(command_dir)
+    except FileNotFoundError as error:
+        log.error("%s", error)
+        return 1
     return 0
+
+
+def _resolve_command_dir(requested: str | None, configured: str | None) -> Path:
+    """Pick the command folder: --commandDir, else settings.command_dir, else
+    <plugin root>/PendingCommands.
+
+    A relative settings.command_dir resolves against the plugin root, not the
+    working directory (which the Proxy Agent does not guarantee).
+    """
+    if requested:
+        return Path(requested).resolve()
+    if configured:
+        return (PLUGIN_ROOT / configured).resolve()
+    return DEFAULT_COMMAND_DIR
 
 
 def _resolve_config_path(requested: str) -> Path:

@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 
 import pytest
 
@@ -125,9 +126,92 @@ def test_log_file_directory_auto_created(config_file, tmp_path):
     assert log_file.exists()
 
 
-def test_command_dir_required_without_check(config_file):
-    with pytest.raises(SystemExit):
-        main(["--config", str(config_file)])
+def write_refresh(pending, output):
+    pending.mkdir(parents=True)
+    output.mkdir(parents=True)
+    (pending / "0001.json").write_text(
+        json.dumps({"CommandName": "refresh", "OutputDirectory": str(output)}),
+        encoding="utf-8",
+    )
+
+
+def test_default_command_dir_is_pending_commands_in_plugin_root():
+    repo_root = Path(__file__).resolve().parent.parent
+    assert cli.PLUGIN_ROOT == repo_root
+    assert cli.DEFAULT_COMMAND_DIR == repo_root / "PendingCommands"
+
+
+def test_command_dir_defaults_to_pending_commands(config_file, tmp_path, monkeypatch):
+    # Neither --commandDir nor settings.command_dir: use the default folder.
+    pending = tmp_path / "PendingCommands"
+    output = tmp_path / "DeviceReports"
+    write_refresh(pending, output)
+    monkeypatch.setattr(cli, "DEFAULT_COMMAND_DIR", pending)
+
+    assert main(["--config", str(config_file)]) == 0
+    assert len(list(output.glob("*.report"))) == 2
+    assert not list(pending.iterdir())  # command consumed
+
+
+def config_with_command_dir(tmp_path, http_server, command_dir):
+    path = tmp_path / "servermon.toml"
+    path.write_text(
+        f'[settings]\ncommand_dir = "{command_dir}"\n\n'
+        f'[[urls]]\nurl = "{http_server}/ok"\n',
+        encoding="utf-8",
+    )
+    return path
+
+
+def test_command_dir_from_config(tmp_path, http_server, monkeypatch):
+    pending = tmp_path / "FromConfig"
+    output = tmp_path / "DeviceReports"
+    write_refresh(pending, output)
+    monkeypatch.setattr(cli, "DEFAULT_COMMAND_DIR", tmp_path / "unused-default")
+    config = config_with_command_dir(tmp_path, http_server, pending.as_posix())
+
+    assert main(["--config", str(config)]) == 0
+    assert len(list(output.glob("*.report"))) == 1
+
+
+def test_relative_config_command_dir_resolves_against_plugin_root(
+    tmp_path, http_server, monkeypatch
+):
+    # Relative to the plugin folder, never the (unpredictable) working dir.
+    root = tmp_path / "plugin-root"
+    pending = root / "Relative" / "Commands"
+    output = tmp_path / "DeviceReports"
+    write_refresh(pending, output)
+    monkeypatch.setattr(cli, "PLUGIN_ROOT", root)
+    config = config_with_command_dir(tmp_path, http_server, "Relative/Commands")
+
+    assert main(["--config", str(config)]) == 0
+    assert len(list(output.glob("*.report"))) == 1
+
+
+def test_command_line_beats_config_command_dir(tmp_path, http_server):
+    pending = tmp_path / "FromCli"
+    output = tmp_path / "DeviceReports"
+    write_refresh(pending, output)
+    config = config_with_command_dir(
+        tmp_path, http_server, (tmp_path / "missing").as_posix()
+    )
+
+    assert main(["--config", str(config), "--commandDir", str(pending)]) == 0
+    assert len(list(output.glob("*.report"))) == 1
+
+
+def test_missing_command_dir_exits_one(config_file, tmp_path, monkeypatch, capsys):
+    # A missing command folder is logged and reported via the exit code,
+    # not a traceback.
+    missing = tmp_path / "PendingCommands"
+    monkeypatch.setattr(cli, "DEFAULT_COMMAND_DIR", missing)
+
+    assert main(["--config", str(config_file)]) == 1
+    # setup_logging replaces caplog's handler, so read the stderr log instead.
+    err = capsys.readouterr().err
+    assert "command directory does not exist" in err
+    assert str(missing) in err
 
 
 def test_unknown_arguments_are_ignored(config_file):

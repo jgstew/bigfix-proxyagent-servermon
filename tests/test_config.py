@@ -52,6 +52,47 @@ def test_state_backend_sqlite(tmp_path):
     assert config.state_backend == "sqlite"
 
 
+def test_command_dir_defaults_to_none(tmp_path):
+    # Unset -> None; the CLI then falls back to <plugin root>/PendingCommands.
+    config = load_config(
+        write_config(tmp_path, '[[urls]]\nurl = "https://example.com"\n')
+    )
+    assert config.command_dir is None
+
+
+def test_command_dir_from_settings(tmp_path):
+    config = load_config(
+        write_config(
+            tmp_path,
+            """
+            [settings]
+            command_dir = "MyCommands"
+
+            [[urls]]
+            url = "https://example.com"
+            """,
+        )
+    )
+    assert config.command_dir == "MyCommands"
+
+
+@pytest.mark.parametrize("value", ['""', "5", "true"])
+def test_command_dir_must_be_a_non_empty_string(tmp_path, value):
+    with pytest.raises(ConfigError, match="settings.command_dir"):
+        load_config(
+            write_config(
+                tmp_path,
+                f"""
+                [settings]
+                command_dir = {value}
+
+                [[urls]]
+                url = "https://example.com"
+                """,
+            )
+        )
+
+
 def test_state_backend_invalid_rejected(tmp_path):
     with pytest.raises(ConfigError, match="settings.state_backend"):
         load_config(

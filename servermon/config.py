@@ -72,6 +72,10 @@ class Config:
     # - if a SQLite state file already exists the SDK uses it regardless, and
     # selecting "sqlite" migrates an existing JSON state file once (never back).
     state_backend: str = "json"
+    # Proxy Agent command folder used when --commandDir is not passed; None ->
+    # <plugin root>/PendingCommands. Relative paths resolve against the plugin
+    # root (see cli._resolve_command_dir).
+    command_dir: str | None = None
 
     def timeout_for(self, entry: UrlEntry) -> float:
         """Effective per-request timeout (seconds) for one URL: the per-URL
@@ -155,6 +159,10 @@ def parse_config(raw: dict[str, Any], source: str = "<config>") -> Config:
             f'{source}: settings.state_backend must be "json" or "sqlite"'
         )
 
+    command_dir = settings.get("command_dir")
+    if command_dir is not None and (not isinstance(command_dir, str) or not command_dir):
+        raise ConfigError(f"{source}: settings.command_dir must be a non-empty string")
+
     raw_urls = raw.get("urls")
     if not isinstance(raw_urls, list):
         # An explicitly-empty list is allowed (e.g. after "delete device"
@@ -197,6 +205,7 @@ def parse_config(raw: dict[str, Any], source: str = "<config>") -> Config:
         user_agent=user_agent,
         refresh_interval_minutes=settings_interval,
         state_backend=state_backend,
+        command_dir=command_dir,
     )
 
 
